@@ -11,7 +11,7 @@ dump = ["kern/dump"]
 cortex-m = { workspace = true }
 cortex-m-rt = { workspace = true }
 stm32f3 = { workspace = true, optional = true, features = ["stm32f303", "rt"] }
-stm32f4 = { workspace = true, optional = true, features = ["stm32f407", "rt"] }
+stm32f4 = { workspace = true, optional = true, features = ["stm32f411", "rt"] }
 
 kern = { path = "../../sys/kern" }
 

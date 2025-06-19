@@ -229,7 +229,7 @@ macro_rules! gpio {
 #[cfg(feature = "stm32f4")]
 macro_rules! gpio {
     () => {
-        unsafe { &*stm32f4::stm32f407::GPIOD::ptr() }
+        unsafe { &*stm32f4::stm32f411::GPIOD::ptr() }
     };
 }
 

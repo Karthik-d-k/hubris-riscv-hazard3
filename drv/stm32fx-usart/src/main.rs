@@ -14,7 +14,7 @@
 #![no_main]
 
 #[cfg(feature = "stm32f4")]
-use stm32f4::stm32f407 as device;
+use stm32f4::stm32f411 as device;
 
 #[cfg(feature = "stm32f3")]
 use stm32f3::stm32f303 as device;

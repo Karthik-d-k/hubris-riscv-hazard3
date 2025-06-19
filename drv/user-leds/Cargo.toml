@@ -10,7 +10,7 @@ idol-runtime.workspace = true
 lpc55-pac = { workspace = true, optional = true }
 num-traits.workspace = true
 stm32f3 = { workspace = true, optional = true, features = ["stm32f303"] }
-stm32f4 = { workspace = true, optional = true, features = ["stm32f407"] }
+stm32f4 = { workspace = true, optional = true, features = ["stm32f411"] }
 zerocopy.workspace = true
 zerocopy-derive.workspace = true
 
