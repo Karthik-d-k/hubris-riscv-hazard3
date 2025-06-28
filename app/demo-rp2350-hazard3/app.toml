@@ -1,0 +1,24 @@
+name = "demo-rp2350-hazard3"
+target = "riscv32imac-unknown-none-elf"
+board = "rp2350-hazard3"
+chip = "../../chips/rp2350-hazard3"
+stacksize = 896
+
+[kernel]
+name = "demo-rp2350-hazard3"
+requires = {flash = 20000, ram = 3072}
+#features = ["rp2350"]
+
+[tasks.minisuper]
+name = "task-minisuper"
+priority = 0
+max-sizes = {flash = 8192, ram = 2048}
+stacksize = 128
+start = true
+
+[tasks.idle]
+name = "task-idle"
+priority = 1
+max-sizes = {flash = 128, ram = 256}
+stacksize = 256
+start = true

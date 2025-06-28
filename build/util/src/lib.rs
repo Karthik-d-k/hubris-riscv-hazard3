@@ -68,6 +68,7 @@ pub fn expose_m_profile() -> Result<()> {
     println!("cargo:rustc-check-cfg=cfg(armv6m)");
     println!("cargo:rustc-check-cfg=cfg(armv7m)");
     println!("cargo:rustc-check-cfg=cfg(armv8m)");
+    println!("cargo:rustc-check-cfg=cfg(riscv32)");
 
     if target.starts_with("thumbv6m") {
         println!("cargo:rustc-cfg=armv6m");
@@ -76,6 +77,8 @@ pub fn expose_m_profile() -> Result<()> {
         println!("cargo:rustc-cfg=armv7m");
     } else if target.starts_with("thumbv8m") {
         println!("cargo:rustc-cfg=armv8m");
+    } else if target.starts_with("riscv32imac") {
+        println!("cargo:rustc-cfg=riscv32");
     } else {
         bail!("Don't know the target {target}");
     }

@@ -4,6 +4,7 @@
 
 //! Kernel startup.
 
+//use crate::atomic::AtomicExt;
 use crate::atomic::AtomicExt;
 use crate::descs::{RegionAttributes, RegionDesc, TaskDesc, TaskFlags};
 use crate::task::Task;
@@ -84,7 +85,9 @@ pub unsafe fn start_kernel(tick_divisor: u32) -> ! {
     // last task, which will cause a scan from 0 on.
     let first_task = crate::task::select(task_table.len() - 1, task_table);
 
-    crate::arch::apply_memory_protection(first_task);
+    unsafe {
+        crate::arch::apply_memory_protection(first_task);
+    }
     TASK_TABLE_IN_USE.store(false, Ordering::Release);
     crate::arch::start_first_task(tick_divisor, first_task)
 }

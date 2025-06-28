@@ -532,13 +532,13 @@ impl Config {
     }
 
     fn mpu_alignment(&self) -> MpuAlignment {
-        // ARMv6-M and ARMv7-M require that memory regions be a power of two.
+        // ARMv6-M, ARMv7-M and hazard3 require that memory regions be a power of two.
         // ARMv8-M does not.
         match self.target.as_str() {
             "thumbv8m.main-none-eabihf" => MpuAlignment::Chunk(32),
-            "thumbv7em-none-eabihf" | "thumbv6m-none-eabi" => {
-                MpuAlignment::PowerOfTwo
-            }
+            "thumbv7em-none-eabihf"
+            | "thumbv6m-none-eabi"
+            | "riscv32imac-unknown-none-elf" => MpuAlignment::PowerOfTwo,
             t => panic!("Unknown mpu requirements for target '{}'", t),
         }
     }

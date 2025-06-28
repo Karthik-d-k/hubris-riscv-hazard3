@@ -1410,8 +1410,14 @@ fn link_task(
         image_name,
     )
     .context(format!("failed to generate linker script for {}", name))?;
-    fs::copy("build/task-link.x", "target/link.x")?;
-
+    // Use the appropriate link script based on the target architecture
+    // Use the appropriate link script based on the target architecture
+    if cfg!(target_arch = "arm") {
+        fs::copy("build/task-link.x", "target/link.x")?;
+    };
+    if cfg!(target_arch = "riscv32") {
+        fs::copy("build/task-link-riscv.x", "target/link.x")?;
+    };
     // Link the static archive
     link(
         cfg,
@@ -1595,8 +1601,10 @@ fn update_image_header(
     if elf.header.container()? != Container::Little {
         bail!("where did you get a big-endian image?");
     }
-    if elf.header.e_machine != goblin::elf::header::EM_ARM {
-        bail!("this is not an ARM file");
+    if elf.header.e_machine != goblin::elf::header::EM_ARM
+        && elf.header.e_machine != goblin::elf::header::EM_RISCV
+    {
+        bail!("this is not an ARM or RISC-V file");
     }
 
     // Good enough.
@@ -2171,6 +2179,7 @@ fn link(
         "thumbv6m-none-eabi"
         | "thumbv7em-none-eabihf"
         | "thumbv8m.main-none-eabihf" => "armelf",
+        "riscv32imac-unknown-none-elf" => "elf32lriscv",
         _ => bail!("No target emulation for '{}'", cfg.toml.target),
     };
     cmd.arg(src_file);
@@ -2864,8 +2873,10 @@ fn get_elf_entry_point(input: &Path) -> Result<u32> {
     if elf.header.container()? != Container::Little {
         bail!("where did you get a big-endian image?");
     }
-    if elf.header.e_machine != goblin::elf::header::EM_ARM {
-        bail!("this is not an ARM file");
+    if elf.header.e_machine != goblin::elf::header::EM_ARM
+        && elf.header.e_machine != goblin::elf::header::EM_RISCV
+    {
+        bail!("this is not an ARM or RISC-V file");
     }
 
     Ok(elf.header.e_entry as u32)
@@ -2884,7 +2895,12 @@ fn load_elf(
 
     // Checked in get_elf_entry_point above, but we'll re-check them here
     assert_eq!(elf.header.container()?, Container::Little);
-    assert_eq!(elf.header.e_machine, goblin::elf::header::EM_ARM);
+    if elf.header.e_machine == goblin::elf::header::EM_ARM {
+        assert_eq!(elf.header.e_machine, goblin::elf::header::EM_ARM);
+    };
+    if elf.header.e_machine == goblin::elf::header::EM_RISCV {
+        assert_eq!(elf.header.e_machine, goblin::elf::header::EM_RISCV);
+    };
 
     let mut flash = 0;
 

@@ -1,0 +1,22 @@
+[package]
+edition = "2021"
+readme = "README.md"
+name = "demo-rp2350-hazard3"
+version = "0.1.0"
+
+[dependencies]
+riscv = { workspace = true }
+riscv-rt = { workspace = true }
+rp235x-pac = { workspace = true, features = ["rt"] }
+
+kern = { path = "../../sys/kern" }
+
+# this lets you use `cargo fix`!
+[[bin]]
+name = "demo-rp2350-hazard3"
+test = false
+doctest = false
+bench = false
+
+[lints]
+workspace = true

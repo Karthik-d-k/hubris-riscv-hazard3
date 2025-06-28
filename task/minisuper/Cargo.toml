@@ -1,0 +1,14 @@
+[package]
+name = "task-minisuper"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userlib = {workspace = true, features = ["no-panic"]}
+hubris-num-tasks.workspace = true
+kipc.workspace = true
+
+[[bin]]
+name = "task-minisuper"
+test = false
+bench = false
