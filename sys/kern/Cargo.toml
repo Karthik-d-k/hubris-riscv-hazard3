@@ -46,6 +46,7 @@ riscv = { workspace = true }
 [features]
 dump = []
 nano = []
+stack-watermark = []
 
 [lib]
 test = false

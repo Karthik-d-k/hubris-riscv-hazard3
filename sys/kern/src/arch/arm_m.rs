@@ -102,6 +102,12 @@ macro_rules! uassert {
 static CURRENT_TASK_PTR: AtomicPtr<task::Task> =
     AtomicPtr::new(core::ptr::null_mut());
 
+/// We use this global to forward a suggestion of the next task's identity to
+/// PendSV. It is not used otherwise. If it contains null, no next task has been
+/// proposed.
+static PROPOSED_TASK_PTR: AtomicPtr<task::Task> =
+    AtomicPtr::new(core::ptr::null_mut());
+
 /// To allow our clock frequency to be easily determined from a debugger, we
 /// store it in memory.
 #[no_mangle]
@@ -268,11 +274,22 @@ const INITIAL_FPSCR: u32 = 0;
 /// that support it) (and that bit 6 and bit 0 can always be set).
 const EXC_RETURN_CONST: u32 = 0xFFFFFFED;
 
-// Because debuggers need to know the clock frequency to set the SWO clock
-// scaler that enables ITM, and because ITM is particularly useful when
-// debugging boot failures, this should be set as early in boot as it can
-// be.
-pub unsafe fn set_clock_freq(tick_divisor: u32) {
+/// Sets the kernel's notion of our clock frequency measured in kHz.
+///
+/// This is used for two broad classes of things. First, it's used to initialize
+/// and manage the SysTick timer that provides the kernel timer interrupt.
+///
+/// Second, it's read by debuggers, which often need to know the clock frequency
+/// to properly initialize ITM, if you're using SWO.
+///
+/// This is called quite early in boot by the architecture-independent startup
+/// code, and should only be called once.
+///
+/// # Safety
+///
+/// This is safe to call once, early in boot, before `start_first_task`. It
+/// should not be called again.
+pub(crate) unsafe fn set_clock_freq(tick_divisor: u32) {
     CLOCK_FREQ_KHZ.store(tick_divisor, Ordering::Relaxed);
 }
 
@@ -1006,7 +1023,7 @@ cfg_if::cfg_if! {
 /// stored is actually in the task table, you'll be okay.
 pub unsafe fn set_current_task(task: &task::Task) {
     CURRENT_TASK_PTR.store(task as *const _ as *mut _, Ordering::Relaxed);
-    crate::profiling::event_context_switch(task as *const _ as usize);
+    crate::profiling::event_context_switch(task.descriptor().index as usize);
 }
 
 /// Reads the tick counter.
@@ -1039,6 +1056,17 @@ static TICKS: [AtomicU32; 2] = {
 #[no_mangle]
 pub unsafe extern "C" fn SysTick() {
     crate::profiling::event_timer_isr_enter();
+
+    // We don't need the current task pointer in this routine, but we'll access
+    // it briefly to update the stack watermark:
+    {
+        let current = CURRENT_TASK_PTR.load(Ordering::Relaxed);
+        // Safety: `CURRENT_TASK_PTR` is valid once the kernel is started, and
+        // this interrupt is only enabled once the kernel is started.
+        let t = unsafe { &mut *current };
+        t.update_stack_watermark();
+    }
+
     with_task_table(|tasks| {
         // Load the time before this tick event.
         let t0 = TICKS[0].load(Ordering::Relaxed);
@@ -1066,18 +1094,64 @@ pub unsafe extern "C" fn SysTick() {
 
         // If any timers fired, we need to defer a context switch, because the entry
         // sequence to this ISR doesn't save state correctly for efficiency.
-        if switch != task::NextTask::Same {
-            pend_context_switch_from_isr();
+        match switch {
+            task::NextTask::Same => (),
+            task::NextTask::Other => {
+                // Safety: contract trivially satisfied by passing None.
+                unsafe {
+                    pend_context_switch_from_isr(None);
+                }
+            }
+            task::NextTask::Specific(i) => {
+                // Safety: tasks[i] is in the task table by definition.
+                unsafe {
+                    pend_context_switch_from_isr(Some(&tasks[i]));
+                }
+            }
         }
     });
     crate::profiling::event_timer_isr_exit();
 }
 
-fn pend_context_switch_from_isr() {
+/// This sets a flag in the interrupt controller that causes a PendSV exception
+/// to occur after all other interrupts have been processed. We use this to do
+/// delayed context switch after a potentially chained series of interrupt
+/// handlers.
+///
+/// The `proposal` nominates a specific task for PendSV to activate. If
+/// provided, PendSV will compare its priority to the current task's priority;
+/// if the proposed task is more important, it gets activated straight-away
+/// without a trip through the scheduler.
+///
+/// If this is called multiple times before PendSV runs (e.g. by chained
+/// interrupts), only the highest priority proposal sticks.
+///
+/// # Safety
+///
+/// If `proposal` is `Some(p)`, `p` must be a valid reference into the task
+/// table.
+unsafe fn pend_context_switch_from_isr(proposal: Option<&task::Task>) {
     // This sets the bit to pend a PendSV interrupt. PendSV will happen after
     // the current ISR (and any chained ISRs) returns, and perform the context
     // switch.
     cortex_m::peripheral::SCB::set_pendsv();
+    if let Some(p) = proposal {
+        let previous = PROPOSED_TASK_PTR.load(Ordering::Relaxed);
+        if !previous.is_null() {
+            // This proposal may not in fact be the best one outstanding.
+
+            // Safety: only pointers into the task table can be loaded per our
+            // safety contract, so it's ok to shared-reference previous.
+            let previous = unsafe { &*previous };
+            if previous.priority().is_more_important_than(p.priority()) {
+                // Ignore this proposal.
+                return;
+            }
+        }
+
+        // Accept this proposal.
+        PROPOSED_TASK_PTR.store(p as *const _ as *mut _, Ordering::Relaxed);
+    }
 }
 
 cfg_if::cfg_if! {
@@ -1176,12 +1250,41 @@ unsafe extern "C" fn pendsv_entry() {
     let current = CURRENT_TASK_PTR.load(Ordering::Relaxed);
     uassert!(!current.is_null()); // irq before kernel started?
 
-    // Safety: we're dereferencing the current task pointer, which we're
-    // trusting the rest of this module to maintain correctly.
-    let current = usize::from(unsafe { (*current).descriptor().index });
+    let current_idx = {
+        // Safety: we're dereferencing the current task pointer, which we're
+        // trusting the rest of this module to maintain correctly.
+        let current = unsafe { &*current };
+
+        // Check and see if we have a proposed next task from an ISR.
+        let proposed = PROPOSED_TASK_PTR.load(Ordering::Relaxed);
+        if !proposed.is_null() {
+            // We do. Clear it.
+            PROPOSED_TASK_PTR.store(core::ptr::null_mut(), Ordering::Relaxed);
+
+            // Safety: again, we're trusting the rest of this module to maintain
+            // pointers put in PROPOSED_TASK_PTR correctly, so we should be able
+            // to dereference it as long as we don't alias the with_task_table
+            // call below (which we can't, due to the scope).
+            //
+            // Note that it's ok if proposed and current alias.
+            let proposed = unsafe { &*proposed };
+
+            if proposed.priority().is_more_important_than(current.priority()) {
+                // No need to invoke the scheduler. Let's go.
+                apply_memory_protection(proposed);
+                unsafe {
+                    set_current_task(proposed);
+                }
+                crate::profiling::event_secondary_syscall_exit();
+                return;
+            }
+        }
+
+        current.descriptor().index as usize
+    };
 
     with_task_table(|tasks| {
-        let next = task::select(current, tasks);
+        let next = task::select(current_idx, tasks);
         apply_memory_protection(next);
         // Safety: next comes from the task table and we don't use it again
         // until next kernel entry, so we meet set_current_task's requirements.
@@ -1210,6 +1313,15 @@ pub unsafe extern "C" fn DefaultHandler() {
         ipsr & 0x1FF
     };
 
+    let current = CURRENT_TASK_PTR.load(Ordering::Relaxed);
+    uassert!(!current.is_null()); // irq before kernel started?
+
+    let current_prio = {
+        let t = unsafe { &mut *current };
+        t.update_stack_watermark();
+        t.priority()
+    };
+
     // The first 16 exceptions are architecturally defined; vendor hardware
     // interrupts start at 16.
     match exception_num {
@@ -1232,7 +1344,7 @@ pub unsafe extern "C" fn DefaultHandler() {
                 .get(abi::InterruptNum(irq_num))
                 .unwrap_or_else(|| panic!("unhandled IRQ {irq_num}"));
 
-            let switch = with_task_table(|tasks| {
+            with_task_table(|tasks| {
                 // This can only fail if the IRQ number is out of range, which
                 // in this case would mean the hardware is conspiring against
                 // us. So ignore it to ensure we don't generate a bogus check.
@@ -1241,11 +1353,21 @@ pub unsafe extern "C" fn DefaultHandler() {
                 // Now, post the notification and return the
                 // scheduling hint.
                 let n = task::NotificationSet(owner.notification);
-                tasks[owner.task as usize].post(n)
+                let task = &mut tasks[owner.task as usize];
+                let woke = task.post(n);
+
+                if woke {
+                    let p = task.priority();
+                    if p.is_more_important_than(current_prio) {
+                        // Safety: task is a reference into the task table.
+                        unsafe {
+                            pend_context_switch_from_isr(Some(task));
+                        }
+                    } else {
+                        // No reason to churn the scheduler.
+                    }
+                }
             });
-            if switch {
-                pend_context_switch_from_isr()
-            }
         }
 
         _ => panic!("unknown exception {exception_num}"),
@@ -1530,7 +1652,12 @@ unsafe extern "C" fn handle_fault(task: *mut task::Task) {
         // assembly fault handler to pass us a legitimate one. We use it
         // immediately and discard it because otherwise it would alias the task
         // table below.
-        let t = unsafe { &(*task) };
+        let t = unsafe { &mut (*task) };
+        // Take the opportunity to update the stack watermark. This is
+        // technically wasted effort if the fault is in the kernel, but it's
+        // still nice to keep it updated -- and it's critical if the fault is in
+        // the task!
+        t.update_stack_watermark();
         (
             t.save().exc_return & 0b1000 != 0,
             usize::from(t.descriptor().index),
@@ -1657,7 +1784,12 @@ unsafe extern "C" fn handle_fault(
     // of dereferencing it, as it would otherwise alias the task table obtained
     // later.
     let (exc_return, psp, idx) = unsafe {
-        let t = &(*task);
+        let t = &mut (*task);
+        // Take the opportunity to update the stack watermark. This is
+        // technically wasted effort if the fault is in the kernel, but it's
+        // still nice to keep it updated -- and it's critical if the fault is in
+        // the task!
+        t.update_stack_watermark();
         (
             t.save().exc_return,
             t.save().psp,

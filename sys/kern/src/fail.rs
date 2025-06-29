@@ -36,7 +36,7 @@ const EPITAPH_LEN: usize = 128;
 /// The "epitaph" buffer records up to `EPITAPH_LEN` bytes of description of the
 /// event that caused the kernel to fail, padded with NULs.
 #[cfg(not(feature = "nano"))]
-#[used]
+#[no_mangle]
 static mut KERNEL_EPITAPH: [u8; EPITAPH_LEN] = [0; EPITAPH_LEN];
 
 #[cfg(not(feature = "nano"))]
