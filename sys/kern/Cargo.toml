@@ -17,6 +17,9 @@ phash = { path = "../../lib/phash" }
 unwrap-lite = { path = "../../lib/unwrap-lite" }
 kerncore.path = "../kerncore"
 
+[target.'cfg(target_arch = "arm")'.dependencies]
+cortex-m = { workspace = true }
+
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 riscv = { version = "0.14" }
 riscv-rt = { version = "0.15.0" }
