@@ -30,9 +30,10 @@ use abi::{FaultInfo, FaultSource, InterruptNum, UsageError};
 
 extern crate riscv_rt;
 
+use riscv::interrupt::Exception::*;
+use riscv::interrupt::Interrupt::*;
 use riscv::interrupt::{Exception, Interrupt, Trap};
-use riscv::register;
-use riscv::register::mstatus::MPP;
+use riscv::register::{self, mcause, mstatus::MPP};
 //use unwrap_lite::UnwrapLite;
 
 /// Log things from kernel context. This macro is made visible to the rest of
@@ -335,7 +336,7 @@ pub unsafe fn apply_memory_protection(task: &task::Task) {
 // We may want to switch to a vectored interrupt table at some point to improve
 // performance.
 //#[naked]
-#[no_mangle]
+//#[no_mangle]
 //#[repr(align(4))]
 #[link_section = ".trap.rust"]
 #[export_name = "_start_trap"]
@@ -446,19 +447,23 @@ pub unsafe extern "C" fn _start_trap() {
 //
 #[no_mangle]
 fn trap_handler(task: &mut task::Task) {
-    match register::mcause::read().cause() {
+    let raw_trap: Trap<usize, usize> = mcause::read().cause();
+    let standard_trap: Trap<Interrupt, Exception> =
+        raw_trap.try_into().unwrap();
+
+    match standard_trap {
         //
         // Interrupts.  Only our periodic MachineTimer interrupt via mtime is
         // supported at present.
         //
-        Trap::Interrupt(i) if i == Interrupt::MachineTimer as usize => unsafe {
+        Trap::Interrupt(SupervisorTimer) => unsafe {
             let ticks = &mut TICKS;
             with_task_table(|tasks| safe_timer_handler(ticks, tasks));
         },
         //
         // System Calls.
         //
-        Trap::Exception(e) if e == Exception::UserEnvCall as usize => {
+        Trap::Exception(UserEnvCall) => {
             unsafe {
                 // Advance program counter past ecall instruction.
                 task.save_mut().pc = register::mepc::read() as u32 + 4;
@@ -475,10 +480,10 @@ fn trap_handler(task: &mut task::Task) {
         //
         // Exceptions.  Routed via the most appropriate FaultInfo.
         //
-        Trap::Exception(e) if e == Exception::IllegalInstruction as usize => unsafe {
+        Trap::Exception(IllegalInstruction) => unsafe {
             handle_fault(task, FaultInfo::IllegalInstruction);
         },
-        Trap::Exception(e) if e == Exception::LoadFault as usize => unsafe {
+        Trap::Exception(LoadFault) => unsafe {
             handle_fault(
                 task,
                 FaultInfo::MemoryAccess {
@@ -487,7 +492,7 @@ fn trap_handler(task: &mut task::Task) {
                 },
             );
         },
-        Trap::Exception(e) if e == Exception::InstructionFault as usize => unsafe {
+        Trap::Exception(InstructionFault) => unsafe {
             handle_fault(task, FaultInfo::IllegalText);
         },
         _ => {
