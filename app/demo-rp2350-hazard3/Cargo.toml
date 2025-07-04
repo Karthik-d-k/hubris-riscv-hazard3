@@ -7,9 +7,12 @@ version = "0.1.0"
 [dependencies]
 riscv = { workspace = true }
 riscv-rt = { workspace = true }
-rp235x-pac = { workspace = true, features = ["rt"] }
+kern = { path = "../../sys/kern", features = ["stack-watermark"] }
 
-kern = { path = "../../sys/kern" }
+[dependencies.rp235x-pac]
+package = "rp235x-pac"
+path = "../../../rp235x-pac"
+features = ["rp235x-riscv-rt"]
 
 # this lets you use `cargo fix`!
 [[bin]]

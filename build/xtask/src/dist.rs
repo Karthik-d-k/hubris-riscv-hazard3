@@ -120,7 +120,12 @@ impl PackageConfig {
             .to_string();
 
         let mut extra_hash = fnv::FnvHasher::default();
-        for f in ["task-link.x", "task-rlink.x", "kernel-link.x"] {
+        let link_files = if cfg!(target_arch = "riscv32") {
+            ["task-link.x", "task-rlink.x", "kernel-link-riscv.x"]
+        } else {
+            ["task-link.x", "task-rlink.x", "kernel-link.x"]
+        };
+        for f in link_files {
             let file_data = std::fs::read(Path::new("build").join(f))?;
             file_data.hash(&mut extra_hash);
         }
@@ -1533,7 +1538,13 @@ fn build_kernel(
         image_name,
     )?;
 
-    fs::copy("build/kernel-link.x", "target/link.x")?;
+    // Use the appropriate link script based on the target architecture
+    if cfg!(target_arch = "arm") {
+        fs::copy("build/kernel-link.x", "target/link.x")?;
+    };
+    if cfg!(target_arch = "riscv32") {
+        fs::copy("build/kernel-link-riscv.x", "target/link.x")?;
+    };
 
     let image_id = image_id.finish();
 

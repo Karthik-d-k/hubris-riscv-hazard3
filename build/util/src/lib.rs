@@ -57,10 +57,10 @@ pub fn has_feature(s: &str) -> bool {
     .is_ok()
 }
 
-/// Exposes the CPU's M-profile architecture version. This isn't available in
-/// rustc's standard environment.
+/// Exposes the ARM CPU's M-profile architecture version: [`armv6m`, `armv7m`, `armv8m`], or [`riscv32`] for RISCV.
+/// This isn't available in rustc's standard environment.
 ///
-/// This will set one of `cfg(armv6m)`, `cfg(armv7m)`, or `cfg(armv8m)`
+/// This will set one of `cfg(armv6m)`, `cfg(armv7m)`, `cfg(armv8m)`, or `cfg(riscv32)`
 /// depending on the value of the `TARGET` environment variable.
 pub fn expose_m_profile() -> Result<()> {
     let target = crate::target();

@@ -4,20 +4,18 @@
 
 //! Architecture support for RISC-V.
 //!
-//! Currently only the Freedom E310 core as found on the HiFive RevB and
-//! Sparkfun RED-V boards is supported, but adding support for other cores
-//! should be straight-forward.
+//! Currently only the hazard3 core as found on the RP Pico 2 and RP Pico 2 W boards
+//! is supported, but adding support for other cores should be straight-forward.
 //!
-//! As the FE310 core does not support it there is no Supervisor mode support,
-//! the kernel runs exclusively in Machine mode with tasks running in User
-//! mode.
+//! As the hazard3 core does not support it there is no Supervisor mode support,
+//! the kernel runs exclusively in Machine mode with tasks running in User mode.
 //!
-//! Interrupts (other than the Machine Timer used to advance the kernel
-//! timestamp) are not yet supported.
+//! Interrupts (other than the Machine Timer used to advance the kernel timestamp)
+//! are not yet supported.
 
 use core::arch;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 
 use zerocopy::FromBytes;
 
@@ -28,13 +26,10 @@ use crate::time::Timestamp;
 
 use abi::{FaultInfo, FaultSource, InterruptNum, UsageError};
 
-extern crate riscv_rt;
-
 use riscv::interrupt::Exception::*;
 use riscv::interrupt::Interrupt::*;
 use riscv::interrupt::{Exception, Interrupt, Trap};
 use riscv::register::{self, mcause, mstatus::MPP};
-//use unwrap_lite::UnwrapLite;
 
 /// Log things from kernel context. This macro is made visible to the rest of
 /// the kernel by a chain of `#[macro_use]` attributes, but its implementation
@@ -50,19 +45,19 @@ use riscv::register::{self, mcause, mstatus::MPP};
 ///
 macro_rules! klog {
     ($s:expr) => {
-        /*let _ = riscv_semihosting::hprintln!($s);*/
+        let _ = riscv_semihosting::hprintln!($s);
     };
     ($s:expr, $($tt:tt)*) => {
-        /*let _ = riscv_semihosting::hprintln!($s, $($tt)*);*/
+        let _ = riscv_semihosting::hprintln!($s, $($tt)*);
     };
 }
 #[allow(unused_macros)]
 macro_rules! kdbg {
     ($s:expr) => {
-        /*let _ = riscv_semihosting::dbg!($s);*/
+        let _ = riscv_semihosting::dbg!($s);
     };
     ($s:expr, $($tt:tt)*) => {
-        /*let _ = riscv_semihosting::dbg!($s, $($tt)*);*/
+        let _ = riscv_semihosting::dbg!($s, $($tt)*);
     };
 }
 
@@ -82,10 +77,16 @@ macro_rules! uassert_eq {
     };
 }
 
+/// On RISC-V we use a global to record the current task pointer.  
+/// It's possible to use the mscratch register instead. (TODO: Future Work)
+#[no_mangle]
+static CURRENT_TASK_PTR: AtomicPtr<task::Task> =
+    AtomicPtr::new(core::ptr::null_mut());
+
 /// To allow our clock frequency to be easily determined from a debugger, we
 /// store it in memory.
 #[no_mangle]
-static mut CLOCK_FREQ_KHZ: AtomicU32 = AtomicU32::new(0);
+static CLOCK_FREQ_KHZ: AtomicU32 = AtomicU32::new(0);
 
 /// On RISC-V we use a global to record the task table position and extent.
 #[no_mangle]
@@ -99,11 +100,6 @@ static mut IRQ_TABLE_BASE: Option<NonNull<abi::Interrupt>> = None;
 #[no_mangle]
 static mut IRQ_TABLE_SIZE: usize = 0;
 
-/// On RISC-V we use a global to record the current task pointer.  It may be
-/// possible to use the mscratch register instead.
-#[no_mangle]
-static mut CURRENT_TASK_PTR: Option<NonNull<task::Task>> = None;
-
 /// RISC-V volatile registers that must be saved across context switches.
 #[repr(C)]
 #[derive(Clone, Debug, Default, FromBytes)]
@@ -116,7 +112,7 @@ pub struct SavedState {
     t0: u32,
     t1: u32,
     t2: u32,
-    s0: u32,
+    s0: u32, // or fp -> Saved register or frame pointer
     s1: u32,
     a0: u32,
     a1: u32,
@@ -140,9 +136,7 @@ pub struct SavedState {
     t4: u32,
     t5: u32,
     t6: u32,
-    // Additional save value for task program counter
-    pc: u32,
-    // NOTE: the above fields must be kept contiguous!
+    pc: u32, // Additional save value for task program counter
 }
 
 /// Map the volatile registers to (architecture-independent) syscall argument
@@ -598,9 +592,8 @@ fn safe_timer_handler(ticks: &mut u64, tasks: &mut [task::Task]) {
     if switch != task::NextTask::Same {
         unsafe {
             with_task_table(|tasks| {
-                let current = CURRENT_TASK_PTR
-                    .expect("irq before kernel started?")
-                    .as_ptr();
+                let current = CURRENT_TASK_PTR.load(Ordering::Relaxed);
+                uassert!(!current.is_null()); // irq before kernel started?
                 let idx = (current as usize - tasks.as_ptr() as usize)
                     / core::mem::size_of::<task::Task>();
 
@@ -631,8 +624,6 @@ pub fn start_first_task(tick_divisor: u32, task: &task::Task) -> ! {
         // Write the initial task program counter.
         register::mepc::write(task.save().pc as *const usize as usize);
 
-        CLOCK_FREQ_KHZ = tick_divisor.into();
-
         // Reset mtime back to 0, set mtimecmp to chosen timer
         set_timer(tick_divisor - 1);
 
@@ -644,7 +635,7 @@ pub fn start_first_task(tick_divisor: u32, task: &task::Task) -> ! {
 
         // Load first task pointer, set its initial stack pointer, and exit out
         // of machine mode, launching the task.
-        CURRENT_TASK_PTR = Some(NonNull::from(task));
+        CURRENT_TASK_PTR.store(task as *const _ as *mut _, Ordering::Relaxed);
         arch::asm!("
             lw sp, ({sp})
             mret",
@@ -700,10 +691,14 @@ pub fn with_irq_table<R>(body: impl FnOnce(&[abi::Interrupt]) -> R) -> R {
 /// # Safety
 ///
 /// This records a pointer that aliases `task`. As long as you don't read that
-/// pointer except at syscall entry, you'll be okay.
+/// pointer while you have access to `task`, and as long as the `task` being
+/// stored is actually in the task table, you'll be okay.
 pub unsafe fn set_current_task(task: &task::Task) {
     unsafe {
-        CURRENT_TASK_PTR = Some(NonNull::from(task));
+        CURRENT_TASK_PTR.store(task as *const _ as *mut _, Ordering::Relaxed);
+        crate::profiling::event_context_switch(
+            task.descriptor().index as usize,
+        );
     }
 }
 

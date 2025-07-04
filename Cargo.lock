@@ -3507,7 +3507,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "riscv",
- "riscv-rt",
  "ron",
  "serde",
  "ssmarshal",
@@ -4607,11 +4606,10 @@ dependencies = [
 [[package]]
 name = "rp235x-pac"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ffcb6931deee4242886b5a1df62db5e2555b0eb6ae1e8be101f3ea3e58e65c6"
 dependencies = [
  "cortex-m",
- "cortex-m-rt",
+ "riscv",
+ "riscv-rt",
  "vcell",
 ]
 
