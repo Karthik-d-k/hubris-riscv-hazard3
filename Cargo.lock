@@ -3507,6 +3507,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "riscv",
+ "riscv-semihosting",
  "ron",
  "serde",
  "ssmarshal",
@@ -4570,6 +4571,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.98",
+]
+
+[[package]]
+name = "riscv-semihosting"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73a1369906473334e14eb09eeb5c5663379f9950b689a2d7d9e3233bc0710a08"
+dependencies = [
+ "critical-section",
+ "riscv",
 ]
 
 [[package]]

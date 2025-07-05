@@ -24,8 +24,9 @@ static TASK_TABLE_AVAIL: AtomicBool = AtomicBool::new(false);
 /// the generated `HUBRIS_TASK_COUNT` constant, and is uninitialized until
 /// written later in this file.
 #[link_section = ".uninit"]
-static mut HUBRIS_TASK_TABLE_SPACE:
-    MaybeUninit<[crate::task::Task; HUBRIS_TASK_COUNT]> = MaybeUninit::uninit();
+static mut HUBRIS_TASK_TABLE_SPACE: MaybeUninit<
+    [crate::task::Task; HUBRIS_TASK_COUNT],
+> = MaybeUninit::uninit();
 
 pub const HUBRIS_FAULT_NOTIFICATION: u32 = 1;
 
@@ -93,9 +94,7 @@ pub unsafe fn start_kernel(tick_divisor: u32) -> ! {
     // last task, which will cause a scan from 0 on.
     let first_task = crate::task::select(task_table.len() - 1, task_table);
 
-    unsafe {
-        crate::arch::apply_memory_protection(first_task);
-    }
+    crate::arch::apply_memory_protection(first_task);
     TASK_TABLE_AVAIL.store(true, Ordering::Release);
     crate::arch::start_first_task(tick_divisor, first_task)
 }
