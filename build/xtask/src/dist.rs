@@ -1539,13 +1539,11 @@ fn build_kernel(
     )?;
 
     // Use the appropriate link script based on the target architecture
-    if cfg!(target_arch = "arm") {
-        fs::copy("build/kernel-link.x", "target/link.x")?;
-    };
-    if cfg!(target_arch = "riscv32") {
+    if cfg.toml.target.starts_with("riscv32") {
         fs::copy("build/kernel-link-riscv.x", "target/link.x")?;
-    };
-
+    } else {
+        fs::copy("build/kernel-link.x", "target/link.x")?;
+    }
     let image_id = image_id.finish();
 
     let flash_outputs = if let Some(o) = cfg.toml.outputs.get("flash") {
