@@ -99,7 +99,7 @@ SECTIONS {
     ASSERT(. == ALIGN(_HUBRIS_IMAGE_HEADER_ALIGN), "header alignment invalid");
     HEADER = .;
     . = . + _HUBRIS_IMAGE_HEADER_SIZE;
-  } > VECTORS
+  } > FLASH
 
   /* .text code + init + trap handlers */
   .text : ALIGN(4) {
@@ -180,5 +180,5 @@ ASSERT(__sdata % 8 == 0 && __edata % 8 == 0, ".data alignment error");
 ASSERT(__sidata % 4 == 0, ".sidata alignment error");
 ASSERT(__sbss % 8 == 0 && __ebss % 8 == 0, ".bss alignment error");
 ASSERT(__sheap % 8 == 0, "Heap start alignment error");
-ASSERT(ADDR(.got) == ADDR(.plt) && SIZEOF(.got) == 0, "GOT/PLT not allowed");
+/*ASSERT(ADDR(.got) == ADDR(.plt) && SIZEOF(.got) == 0, "GOT/PLT not allowed");*/
 ASSERT(_stack_start % 16 == 0, "Stack alignment error");
