@@ -2,7 +2,7 @@
 target = "riscv32imac-unknown-none-elf"
 
 [target.riscv32imac-unknown-none-elf]
-rustflags = ["-C", "link-arg=-Tkernel-link-riscv.x"]
+rustflags = ["-C", "link-arg=-Ttask-rlink.x"]
 
 [env]
 HUBRIS_TARGET = "riscv32imac-unknown-none-elf"

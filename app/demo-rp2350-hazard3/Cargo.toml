@@ -5,8 +5,8 @@ name = "demo-rp2350-hazard3"
 version = "0.1.0"
 
 [dependencies]
-riscv = { workspace = true }
-riscv-rt = { workspace = true }
+riscv = { workspace = true, features = ["critical-section-single-hart"] }
+riscv-rt = { workspace = true, features = ["device", "memory"] }
 kern = { path = "../../sys/kern", features = ["stack-watermark"] }
 
 [dependencies.rp235x-pac]
