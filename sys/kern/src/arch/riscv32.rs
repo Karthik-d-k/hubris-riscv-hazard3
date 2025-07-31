@@ -446,6 +446,7 @@ pub fn pend_software_irq(
 /// handler assembly code and should not be used for other purposes.
 #[no_mangle]
 unsafe extern "C" fn handle_fault(task: *mut task::Task, fault: FaultInfo) {
+    klog!("Handling fault {:?}", fault);
     with_task_table(|tasks| {
         let idx = (task as usize - tasks.as_ptr() as usize)
             / core::mem::size_of::<task::Task>();
@@ -470,6 +471,7 @@ unsafe extern "C" fn handle_fault(task: *mut task::Task, fault: FaultInfo) {
 }
 
 pub fn reset() -> ! {
+    klog!("Resetting CPU");
     loop {
         riscv::asm::wfi();
     }
@@ -602,6 +604,16 @@ pub unsafe extern "C" fn _start_trap() {
 //
 #[no_mangle]
 fn trap_handler(task: &mut task::Task) {
+    let desc = task.descriptor();
+    let index = desc.index as usize;
+    let entry_point = desc.entry_point as usize;
+    let initial_stack = desc.initial_stack as usize;
+    klog!(
+        "Handling trap for task with index: {:?}\n entry_point: {:#010x}\n initial_stack: {:#010x}",
+        index,
+        entry_point,
+        initial_stack
+    );
     let raw_trap: Trap<usize, usize> = mcause::read().cause();
     let standard_trap: Trap<Interrupt, Exception> =
         raw_trap.try_into().unwrap();
