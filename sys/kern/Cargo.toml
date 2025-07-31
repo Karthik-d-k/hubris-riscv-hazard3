@@ -18,6 +18,7 @@ unwrap-lite = { path = "../../lib/unwrap-lite" }
 kerncore.path = "../kerncore"
 
 [target.'cfg(target_arch = "arm")'.dependencies]
+armv8-m-mpu = { path = "../../lib/armv8-m-mpu" }
 cortex-m = { workspace = true }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
@@ -38,12 +39,6 @@ build-kconfig = { path = "../../build/kconfig" }
 build-util = { path = "../../build/util" }
 call_rustfmt = { path = "../../build/call_rustfmt" }
 phash-gen = { path = "../../build/phash-gen" }
-
-[target.'cfg(target_arch = "arm")'.build-dependencies]
-armv8-m-mpu = { path = "../../lib/armv8-m-mpu" }
-cortex-m = { workspace = true }
-[target.'cfg(target_arch = "riscv32")'.build-dependencies]
-riscv = { workspace = true, features = ["critical-section-single-hart"] }
 
 [features]
 dump = []
