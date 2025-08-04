@@ -88,6 +88,24 @@ use abi::{FaultInfo, InterruptNum, UsageError};
 use armv8_m_mpu::{disable_mpu, enable_mpu};
 use unwrap_lite::UnwrapLite;
 
+macro_rules! klog {
+    ($s:expr) => {
+        let _ = cortex_m_semihosting::hprintln!($s);
+    };
+    ($s:expr, $($tt:tt)*) => {
+        let _ = cortex_m_semihosting::hprintln!($s, $($tt)*);
+    };
+}
+#[allow(unused_macros)]
+macro_rules! kdbg {
+    ($s:expr) => {
+        let _ = cortex_m_semihosting::dbg!($s);
+    };
+    ($s:expr, $($tt:tt)*) => {
+        let _ = cortex_m_semihosting::dbg!($s, $($tt)*);
+    };
+}
+
 macro_rules! uassert {
     ($cond : expr) => {
         if !$cond {

@@ -49,7 +49,7 @@ pub const HUBRIS_FAULT_NOTIFICATION: u32 = 1;
 ///
 /// This function may not be called reentrantly or from multiple cores.
 pub unsafe fn start_kernel(tick_divisor: u32) -> ! {
-    klog!("starting: kernel");
+    klog!("[KERN]: starting: kernel");
     // Set our clock frequency so debuggers can find it as needed
     //
     // Safety: Due to our own safety contract, we're calling this a single time
@@ -97,7 +97,7 @@ pub unsafe fn start_kernel(tick_divisor: u32) -> ! {
 
     crate::arch::apply_memory_protection(first_task);
     TASK_TABLE_AVAIL.store(true, Ordering::Release);
-    klog!("starting: hubris");
+    klog!("[KERN]: starting: hubris");
     crate::arch::start_first_task(tick_divisor, first_task)
 }
 
