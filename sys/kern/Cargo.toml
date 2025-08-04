@@ -20,6 +20,7 @@ kerncore.path = "../kerncore"
 [target.'cfg(target_arch = "arm")'.dependencies]
 armv8-m-mpu = { path = "../../lib/armv8-m-mpu" }
 cortex-m = { workspace = true }
+cortex-m-semihosting = { workspace = true }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 riscv = { workspace = true }

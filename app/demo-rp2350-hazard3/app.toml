@@ -6,7 +6,7 @@ stacksize = 896
 
 [kernel]
 name = "demo-rp2350-hazard3"
-requires = {flash = 26784, ram = 2608}
+requires = {flash = 29840, ram = 2608}
 #features = ["rp2350"]
 
 [tasks.minisuper]
