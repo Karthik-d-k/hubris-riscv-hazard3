@@ -43,6 +43,7 @@ use riscv::register::{self, mcause, mstatus::MPP};
 /// buffer) from which they can be consumed by some entity for shipping
 /// elsewhere.
 ///
+#[macro_export]
 macro_rules! klog {
     ($s:expr) => {
         let _ = riscv_semihosting::hprintln!($s);
@@ -51,6 +52,8 @@ macro_rules! klog {
         let _ = riscv_semihosting::hprintln!($s, $($tt)*);
     };
 }
+
+#[macro_export]
 #[allow(unused_macros)]
 macro_rules! kdbg {
     ($s:expr) => {
@@ -61,6 +64,7 @@ macro_rules! kdbg {
     };
 }
 
+#[macro_export]
 macro_rules! uassert {
     ($cond : expr) => {
         if !$cond {
@@ -126,6 +130,10 @@ impl task::ArchState for SavedState {
         self.sp
     }
 
+    fn program_counter(&self) -> u32 {
+        self.pc
+    }
+
     /// Reads syscall argument register 0.
     fn arg0(&self) -> u32 {
         self.a0
@@ -171,6 +179,17 @@ impl task::ArchState for SavedState {
     }
     fn ret5(&mut self, x: u32) {
         self.a5 = x
+    }
+
+    /// Reads stack registers
+    fn s_0(&self) -> u32 {
+        self.s0
+    }
+    fn s_1(&self) -> u32 {
+        self.s1
+    }
+    fn s_2(&self) -> u32 {
+        self.s2
     }
 }
 
@@ -227,60 +246,66 @@ pub const fn compute_region_extension_data(
     size: u32,
     attributes: RegionAttributes,
 ) -> RegionDescExt {
-    // The RISC-V PMP hardware requires:
-    // Regions must start at a 32-byte aligned address.
-    // Regions must be at least 32 bytes.
-    // Regions must be a power of two in size.
-    if base & 0x1F != 0 || size < 32 || (size & (size - 1)) != 0 {
+    // Must be power of two and base aligned to size, and minimum 32 bytes
+    if size < 32 || (size & (size - 1)) != 0 || (base & (size - 1)) != 0 {
         panic!();
     }
 
-    // Permissions
     let r = attributes.contains(RegionAttributes::READ);
     let w = attributes.contains(RegionAttributes::WRITE);
     let x = attributes.contains(RegionAttributes::EXECUTE);
+    let any = r || w || x;
 
-    // TODO: Impl lock bit for kernel PMP region ??
-    // refer: 3.8.3.2 `PMP Permissions` in RP2350 Datasheet
+    // NAPOT address encoding only matters if the entry is active.
+    let pmpaddr = {
+        // NAPOT: pmpaddr = (base >> 2) | ((size >> 3) - 1)
+        let base_shifted = (base as usize) >> 2;
+        let size_encoded = (size as usize >> 3) - 1;
+        (base_shifted | size_encoded) as u32
+    };
 
-    // Encode PMPADDR using NAPOT format: base + (size / 2 - 1)
-    let pmpaddr = ((base as u64) | ((size as u64 / 2) - 1)) >> 2;
-
-    // PMP configuration byte
-    // Note: Due to erratum `RP2350-E6`,
-    // the field order in the PMP configuration fields is R, W, X (MSB-first)
-    // rather than the standard X, W, R.
     let pmpcfg = ((x as u8) << 0) |   // execute → bit 0
                  ((w as u8) << 1) |   // write   → bit 1
                  ((r as u8) << 2) |   // read    → bit 2
                  (0b11 << 3); // NAPOT   → bits 4–3
 
-    RegionDescExt {
-        pmpcfg,
-        pmpaddr: pmpaddr as u32,
-    }
+    RegionDescExt { pmpcfg, pmpaddr }
 }
 
+/// Apply memory protection for a task
 pub fn apply_memory_protection(task: &task::Task) {
+    klog!(
+        "[KERN]: Configuring memory protection for task id: {}",
+        task.descriptor().index
+    );
+
+    // Log PMP configuration at START - split by regions
+    let pmpcfg0_start = register::pmpcfg0::read().bits;
+    let pmpcfg1_start = register::pmpcfg1::read().bits;
+
+    klog!("[KERN]: PMP Config at START:");
+    klog!(
+        "[KERN]:   Region 0: cfg=0b{:08b}, Region 1: cfg=0b{:08b}, Region 2: cfg=0b{:08b}, Region 3: cfg=0b{:08b}",
+        pmpcfg0_start & 0xFF,
+        (pmpcfg0_start >> 8) & 0xFF,
+        (pmpcfg0_start >> 16) & 0xFF,
+        (pmpcfg0_start >> 24) & 0xFF
+    );
+    klog!(
+        "[KERN]:   Region 4: cfg=0b{:08b}, Region 5: cfg=0b{:08b}, Region 6: cfg=0b{:08b}, Region 7: cfg=0b{:08b}",
+        pmpcfg1_start & 0xFF,
+        (pmpcfg1_start >> 8) & 0xFF,
+        (pmpcfg1_start >> 16) & 0xFF,
+        (pmpcfg1_start >> 24) & 0xFF
+    );
+
     unsafe {
-        for (i, region) in task.region_table().iter().enumerate() {
-            let mut pmpcfg: usize = 0;
-            if region.attributes.contains(RegionAttributes::EXECUTE) {
-                pmpcfg |= 0b001;
-            }
-            if region.attributes.contains(RegionAttributes::WRITE) {
-                pmpcfg |= 0b010;
-            }
-            if region.attributes.contains(RegionAttributes::READ) {
-                pmpcfg |= 0b100;
-            }
-            // Configure NAPOT (naturally aligned power-of-2) regions
-            pmpcfg |= 0b11_000;
+        for (i, region) in task.region_table().iter().enumerate().take(8) {
+            // Use precomputed values from arch_data
+            let pmpcfg = region.arch_data.pmpcfg as usize;
+            let pmpaddr = region.arch_data.pmpaddr as usize;
 
-            let mut pmpaddr: usize = 0;
-            pmpaddr |= region.base as usize >> 2;
-            pmpaddr |= (region.size - 1) as usize;
-
+            // Write the pmpaddr register then call set_pmp on the appropriate pmpcfg CSR
             match i {
                 0 => {
                     register::pmpaddr0::write(pmpaddr);
@@ -336,10 +361,34 @@ pub fn apply_memory_protection(task: &task::Task) {
                             | (pmpcfg << 24),
                     );
                 }
-                _ => {}
-            };
+                _ => {
+                    klog!(
+                        "[KERN]: Warning: PMP region {} exceeds hardware limit",
+                        i
+                    );
+                }
+            }
         }
     }
+    // Log PMP configuration at END - split by regions
+    let pmpcfg0_end = register::pmpcfg0::read().bits;
+    let pmpcfg1_end = register::pmpcfg1::read().bits;
+
+    klog!("[KERN]: PMP Config at END:");
+    klog!(
+        "[KERN]:   Region 0: cfg=0b{:08b}, Region 1: cfg=0b{:08b}, Region 2: cfg=0b{:08b}, Region 3: cfg=0b{:08b}",
+        pmpcfg0_end & 0xFF,
+        (pmpcfg0_end >> 8) & 0xFF,
+        (pmpcfg0_end >> 16) & 0xFF,
+        (pmpcfg0_end >> 24) & 0xFF
+    );
+    klog!(
+        "[KERN]:   Region 4: cfg=0b{:08b}, Region 5: cfg=0b{:08b}, Region 6: cfg=0b{:08b}, Region 7: cfg=0b{:08b}",
+        pmpcfg1_end & 0xFF,
+        (pmpcfg1_end >> 8) & 0xFF,
+        (pmpcfg1_end >> 16) & 0xFF,
+        (pmpcfg1_end >> 24) & 0xFF
+    );
 }
 
 pub fn start_first_task(tick_divisor: u32, task: &task::Task) -> ! {
@@ -353,6 +402,10 @@ pub fn start_first_task(tick_divisor: u32, task: &task::Task) -> ! {
         // Configure the timer
         // Write the initial task program counter.
         register::mepc::write(task.save().pc as *const usize as usize);
+        klog!(
+            "[KERN]: Starting first task with PC: 0x{:X}",
+            task.save().pc
+        );
 
         // Reset mtime back to 0, set mtimecmp to chosen timer
         set_timer(tick_divisor - 1);
@@ -618,18 +671,28 @@ fn trap_handler(task: &mut task::Task) {
     let standard_trap: Trap<Interrupt, Exception> =
         raw_trap.try_into().unwrap();
 
+    klog!("[KERN]: standard_trap: {:?}", standard_trap);
+
     match standard_trap {
         //
         // Interrupts.  Only our periodic MachineTimer interrupt via mtime is
         // supported at present.
         //
         Trap::Interrupt(SupervisorTimer) => {
+            klog!("[KERN]: Trap::Interrupt(SupervisorTimer)");
             with_task_table(|tasks| safe_timer_handler(tasks))
         }
         //
         // System Calls.
         //
         Trap::Exception(UserEnvCall) => {
+            klog!("[KERN]: Trap::Exception(UserEnvCall)");
+            // TODO: Shouldn't be done, just for debugging
+            unsafe {
+                register::mstatus::set_mpp(MPP::Machine);
+            }
+            let mstatus = register::mstatus::read();
+            klog!("[KERN]: MSTATUS: {:?}", mstatus.mpp());
             unsafe {
                 // Advance program counter past ecall instruction.
                 task.save_mut().pc = register::mepc::read() as u32 + 4;
@@ -647,9 +710,21 @@ fn trap_handler(task: &mut task::Task) {
         // Exceptions.  Routed via the most appropriate FaultInfo.
         //
         Trap::Exception(IllegalInstruction) => unsafe {
+            klog!("[KERN]: Trap::Exception(IllegalInstruction)");
             handle_fault(task, FaultInfo::IllegalInstruction);
         },
         Trap::Exception(LoadFault) => unsafe {
+            klog!("[KERN]: Trap::Exception(LoadFault)");
+            handle_fault(
+                task,
+                FaultInfo::MemoryAccess {
+                    address: Some(register::mtval::read() as u32),
+                    source: FaultSource::User,
+                },
+            );
+        },
+        Trap::Exception(StoreFault) => unsafe {
+            klog!("[KERN]: Trap::Exception(StoreFault)");
             handle_fault(
                 task,
                 FaultInfo::MemoryAccess {
@@ -659,6 +734,7 @@ fn trap_handler(task: &mut task::Task) {
             );
         },
         Trap::Exception(InstructionFault) => unsafe {
+            klog!("[KERN]: Trap::Exception(InstructionFault)");
             handle_fault(task, FaultInfo::IllegalText);
         },
         _ => {

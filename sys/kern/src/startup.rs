@@ -97,7 +97,11 @@ pub unsafe fn start_kernel(tick_divisor: u32) -> ! {
 
     crate::arch::apply_memory_protection(first_task);
     TASK_TABLE_AVAIL.store(true, Ordering::Release);
-    klog!("[KERN]: starting: hubris");
+    klog!(
+        "[KERN]: starting: hubris with task id: {} and priority: {}",
+        first_task.descriptor().index,
+        first_task.descriptor().priority
+    );
     crate::arch::start_first_task(tick_divisor, first_task)
 }
 

@@ -341,10 +341,8 @@ impl Task {
 
         #[cfg(feature = "stack-watermark")]
         {
-            self.past_stack_pointer_low = u32::min(
-                self.past_stack_pointer_low,
-                self.stack_pointer_low,
-            );
+            self.past_stack_pointer_low =
+                u32::min(self.past_stack_pointer_low, self.stack_pointer_low);
             self.stack_pointer_low = u32::MAX;
         }
 
@@ -358,10 +356,8 @@ impl Task {
     pub fn update_stack_watermark(&mut self) {
         #[cfg(feature = "stack-watermark")]
         {
-            self.stack_pointer_low = u32::min(
-                self.stack_pointer_low,
-                self.save().stack_pointer(),
-            );
+            self.stack_pointer_low =
+                u32::min(self.stack_pointer_low, self.save().stack_pointer());
         }
     }
 
@@ -432,6 +428,7 @@ impl Task {
 pub trait ArchState: Default {
     /// TODO: this is probably not needed here.
     fn stack_pointer(&self) -> u32;
+    fn program_counter(&self) -> u32;
 
     /// Reads syscall argument register 0.
     fn arg0(&self) -> u32;
@@ -463,6 +460,10 @@ pub trait ArchState: Default {
     fn ret4(&mut self, _: u32);
     /// Writes syscall return argument 5.
     fn ret5(&mut self, _: u32);
+
+    fn s_0(&self) -> u32;
+    fn s_1(&self) -> u32;
+    fn s_2(&self) -> u32;
 
     /// Interprets arguments as for the SEND syscall and returns the results.
     ///

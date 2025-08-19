@@ -42,9 +42,41 @@ use crate::startup::with_task_table;
 use crate::task::{self, current_id, ArchState, NextTask, Task};
 use crate::time::Timestamp;
 use crate::umem::{safe_copy, USlice};
+use riscv::register::{self, mstatus::MPP};
 
 #[cfg(hubris_phantom_svc_mitigation)]
 pub(crate) static EXPECT_PHANTOM_SYSCALL: AtomicBool = AtomicBool::new(false);
+
+/// Log register state for debugging
+fn log_register_state(task: &task::Task, context: &str) {
+    let save = task.save();
+    klog!(
+        "[KERN] Register state ({}): PC=0x{:08x}, SP=0x{:08x}",
+        context,
+        save.program_counter(),
+        save.stack_pointer()
+    );
+    klog!(
+        "[KERN]   a0=0x{:08x}, a1=0x{:08x}, a2=0x{:08x}, a3=0x{:08x}",
+        save.arg0(),
+        save.arg1(),
+        save.arg2(),
+        save.arg3()
+    );
+    klog!(
+        "[KERN]   a4=0x{:08x}, a5=0x{:08x}, a6=0x{:08x}, a7=0x{:08x}",
+        save.arg4(),
+        save.arg5(),
+        save.arg6(),
+        save.syscall_descriptor()
+    );
+    klog!(
+        "[KERN]   s0=0x{:08x}, s1=0x{:08x}, s2=0x{:08x}",
+        save.s_0(),
+        save.s_1(),
+        save.s_2()
+    );
+}
 
 /// Entry point accessed by arch-specific syscall entry sequence.
 ///
@@ -63,6 +95,17 @@ pub(crate) static EXPECT_PHANTOM_SYSCALL: AtomicBool = AtomicBool::new(false);
 #[no_mangle]
 pub unsafe extern "C" fn syscall_entry(nr: u32, task: *mut Task) {
     crate::profiling::event_syscall_enter(nr);
+
+    let task_ref = unsafe { &*task };
+    // Log register state BEFORE syscall
+    klog!(
+        "[KERN] Syscall {} entry for task {}",
+        nr,
+        task_ref.descriptor().index
+    );
+    log_register_state(task_ref, "BEFORE");
+    let mstatus = register::mstatus::read();
+    klog!("[KERN]: MSTATUS: {:?}", mstatus.mpp());
 
     // The task pointer is about to alias our task table, at which point it
     // could not be dereferenced -- so we'll shed our ability to dereference it
@@ -113,6 +156,21 @@ pub unsafe extern "C" fn syscall_entry(nr: u32, task: *mut Task) {
             }
         }
     });
+
+    // Log register state AFTER syscall
+    let task_ref = unsafe { &*task };
+    log_register_state(task_ref, "AFTER");
+    klog!(
+        "[KERN] Syscall {} exit for task {}",
+        nr,
+        task_ref.descriptor().index
+    );
+    // TODO: Shouldn't be done, just for debugging
+    unsafe {
+        register::mstatus::set_mpp(MPP::User);
+    }
+    let mstatus = register::mstatus::read();
+    klog!("[KERN]: MSTATUS: {:?}", mstatus.mpp());
 
     crate::profiling::event_syscall_exit();
 }
