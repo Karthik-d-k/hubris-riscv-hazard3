@@ -141,7 +141,9 @@ pub unsafe extern "C" fn _start() -> ! {
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_send_stub(_args: &mut SendArgs<'_>) -> RcLen {
+pub(crate) unsafe extern "C" fn sys_send_stub(
+    _args: &mut SendArgs<'_>,
+) -> RcLen {
     cfg_if::cfg_if! {
         if #[cfg(armv6m)] {
             asm!("
@@ -214,7 +216,7 @@ unsafe extern "C" fn sys_send_stub(_args: &mut SendArgs<'_>) -> RcLen {
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
 #[must_use]
-unsafe extern "C" fn sys_recv_stub(
+pub(crate) unsafe extern "C" fn sys_recv_stub(
     _buffer_ptr: *mut u8,
     _buffer_len: usize,
     _notification_mask: u32,
@@ -310,7 +312,7 @@ unsafe extern "C" fn sys_recv_stub(
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_reply_stub(
+pub(crate) unsafe extern "C" fn sys_reply_stub(
     _peer: u32,
     _code: u32,
     _message_ptr: *const u8,
@@ -385,7 +387,7 @@ unsafe extern "C" fn sys_reply_stub(
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_set_timer_stub(
+pub(crate) unsafe extern "C" fn sys_set_timer_stub(
     _set_timer: u32,
     _deadline_lo: u32,
     _deadline_hi: u32,
@@ -456,7 +458,9 @@ unsafe extern "C" fn sys_set_timer_stub(
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_borrow_read_stub(_args: *mut BorrowReadArgs) -> RcLen {
+pub(crate) unsafe extern "C" fn sys_borrow_read_stub(
+    _args: *mut BorrowReadArgs,
+) -> RcLen {
     cfg_if::cfg_if! {
         if #[cfg(armv6m)] {
             asm!("
@@ -525,7 +529,7 @@ unsafe extern "C" fn sys_borrow_read_stub(_args: *mut BorrowReadArgs) -> RcLen {
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_borrow_write_stub(
+pub(crate) unsafe extern "C" fn sys_borrow_write_stub(
     _args: *mut BorrowWriteArgs,
 ) -> RcLen {
     cfg_if::cfg_if! {
@@ -597,7 +601,7 @@ unsafe extern "C" fn sys_borrow_write_stub(
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_borrow_info_stub(
+pub(crate) unsafe extern "C" fn sys_borrow_info_stub(
     _lender: u32,
     _index: usize,
     _out: *mut RawBorrowInfo,
@@ -666,7 +670,7 @@ unsafe extern "C" fn sys_borrow_info_stub(
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_irq_control_stub(_mask: u32, _enable: u32) {
+pub(crate) unsafe extern "C" fn sys_irq_control_stub(_mask: u32, _enable: u32) {
     cfg_if::cfg_if! {
         if #[cfg(armv6m)] {
             asm!("
@@ -728,7 +732,10 @@ unsafe extern "C" fn sys_irq_control_stub(_mask: u32, _enable: u32) {
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_panic_stub(_msg: *const u8, _len: usize) -> ! {
+pub(crate) unsafe extern "C" fn sys_panic_stub(
+    _msg: *const u8,
+    _len: usize,
+) -> ! {
     cfg_if::cfg_if! {
         if #[cfg(armv6m)] {
             asm!("
@@ -784,7 +791,7 @@ unsafe extern "C" fn sys_panic_stub(_msg: *const u8, _len: usize) -> ! {
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_get_timer_stub(_out: *mut RawTimerState) {
+pub(crate) unsafe extern "C" fn sys_get_timer_stub(_out: *mut RawTimerState) {
     cfg_if::cfg_if! {
         if #[cfg(armv6m)] {
             asm!("
@@ -849,7 +856,7 @@ unsafe extern "C" fn sys_get_timer_stub(_out: *mut RawTimerState) {
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_refresh_task_id_stub(_tid: u32) -> u32 {
+pub(crate) unsafe extern "C" fn sys_refresh_task_id_stub(_tid: u32) -> u32 {
     cfg_if::cfg_if! {
         if #[cfg(armv6m)] {
             asm!("
@@ -913,7 +920,7 @@ unsafe extern "C" fn sys_refresh_task_id_stub(_tid: u32) -> u32 {
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_post_stub(_tid: u32, _mask: u32) -> u32 {
+pub(crate) unsafe extern "C" fn sys_post_stub(_tid: u32, _mask: u32) -> u32 {
     cfg_if::cfg_if! {
         if #[cfg(armv6m)] {
             asm!("
@@ -978,7 +985,7 @@ unsafe extern "C" fn sys_post_stub(_tid: u32, _mask: u32) -> u32 {
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_reply_fault_stub(_tid: u32, _reason: u32) {
+pub(crate) unsafe extern "C" fn sys_reply_fault_stub(_tid: u32, _reason: u32) {
     cfg_if::cfg_if! {
         if #[cfg(armv6m)] {
             asm!("
@@ -1040,7 +1047,7 @@ unsafe extern "C" fn sys_reply_fault_stub(_tid: u32, _reason: u32) {
 ///
 /// See the note on syscall stubs at the top of this module for rationale.
 #[naked]
-unsafe extern "C" fn sys_irq_status_stub(_mask: u32) -> u32 {
+pub(crate) unsafe extern "C" fn sys_irq_status_stub(_mask: u32) -> u32 {
     cfg_if::cfg_if! {
         if #[cfg(armv6m)] {
             asm!("
