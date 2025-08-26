@@ -1733,7 +1733,7 @@ fn check_dump_config(toml: &Config) -> Result<()> {
 
 /// Prints warning messages about priority inversions
 fn check_task_priorities(toml: &Config) -> Result<()> {
-    // let idle_priority = toml.tasks["idle"].priority;
+    let idle_priority = toml.tasks["idle"].priority;
     for (i, (name, task)) in toml.tasks.iter().enumerate() {
         for callee in task.task_slots.values() {
             let p = toml
@@ -1754,7 +1754,7 @@ fn check_task_priorities(toml: &Config) -> Result<()> {
                 );
             }
         }
-        if task.priority >= 1 && name != "idle" {
+        if task.priority >= idle_priority && name != "idle" {
             bail!("task {} has priority that's >= idle priority", name);
         } else if i == 0 && task.priority != 0 {
             bail!("Supervisor task ({}) is not at priority 0", name);
