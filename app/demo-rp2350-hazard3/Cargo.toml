@@ -5,9 +5,11 @@ name = "demo-rp2350-hazard3"
 version = "0.1.0"
 
 [dependencies]
-riscv = { workspace = true, features = ["critical-section-single-hart"] }
-riscv-rt = { workspace = true, features = ["device", "memory"] }
-rp235x-pac = { workspace = true, features = ["rt"] }
+[target.riscv32imac-unknown-none-elf.dependencies]
+riscv = { version = "0.14", features = ["critical-section-single-hart"] }
+riscv-rt = { version = "0.15" }
+rp235x-pac = {version = "0.1.0", features = ["critical-section", "rt"]}
+sha2-const-stable = "0.1"
 kern = { path = "../../sys/kern", features = ["stack-watermark"] }
 
 # this lets you use `cargo fix`!

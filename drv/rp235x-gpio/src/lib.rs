@@ -3,35 +3,7 @@
 #![no_std]
 
 use rp235x_pac::io_bank0::gpio::gpio_ctrl::FUNCSEL_A;
-use rp235x_pac::{IO_BANK0, PADS_BANK0, RESETS, SIO};
-
-// Initialize the necessary underlying peripherals.
-// This MUST be called once at boot before any other function in this module.
-pub fn init_peripherals() {
-    // Take control of the RESETS peripheral.
-    let resets = unsafe { RESETS::steal() };
-
-    // Define the bitmask for the peripherals required for GPIO operations.
-    let peripherals_to_enable = (1 << 6)   // IO_BANK0
-        | (1 << 9)   // PADS_BANK0
-        | (1 << 11); // PIO0 (which includes SIO)
-
-    // The RESET register holds peripherals in reset when their bit is '1'.
-    // We need to clear these bits to take them out of reset.
-    // This is a safe read-modify-write operation using the PAC API.
-    resets.reset().modify(|_r, w| unsafe {
-        // Read the current reset state, clear our bits, and write back.
-        w.bits(resets.reset().read().bits() & !peripherals_to_enable)
-    });
-
-    // Wait for the reset to complete. The RESET_DONE register's bits
-    // will go HIGH when the corresponding peripherals are ready.
-    loop {
-        if (resets.reset_done().read().bits() & peripherals_to_enable) == peripherals_to_enable {
-            break;
-        }
-    }
-}
+use rp235x_pac::{IO_BANK0, PADS_BANK0, SIO};
 
 pub struct GpioPeripherals {
     pub sio: SIO,
@@ -64,9 +36,9 @@ pub fn pico_led_init(led_pin: usize) -> GpioPeripherals {
         // Set input enable on, output disable off
         // RP2350: input enable defaults to off, so this is important!
         w.ie().set_bit();
-        // w.od().clear_bit();
+        w.od().clear_bit();
         // RP2350: remove pad isolation now a function is wired up
-        // w.iso().clear_bit();
+        w.iso().clear_bit();
         w
     });
 

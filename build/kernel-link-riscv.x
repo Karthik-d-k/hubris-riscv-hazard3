@@ -94,6 +94,16 @@ PROVIDE(_heap_size = 0);
 
 /* Section layout */
 SECTIONS {
+  /* ### Boot ROM info
+    Goes in VECTORS, to keep it in the first 4K of flash
+    where the Boot ROM (and picotool) can find it
+  */
+  .start_block : ALIGN(4)
+  {
+      __start_block_addr = .;
+      KEEP(*(.start_block));
+  } > FLASH
+
   /* Optional header for bootloader */
   .header : {
     ASSERT(. == ALIGN(_HUBRIS_IMAGE_HEADER_ALIGN), "header alignment invalid");

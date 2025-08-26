@@ -29,6 +29,5 @@ fn main() -> ! {
         pico_led_set(&gpio_peripherals, LED_PIN, false);
         // Wait for a while
         delay(1_20_30_000);
-        // core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     }
 }
