@@ -13,3 +13,8 @@ itm.txt
 !.vscode/launch.json
 !.vscode/tasks.json
 !.vscode/extensions.json
+
+# build files
+*.dot
+*.svg
+*.txt
