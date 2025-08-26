@@ -130,10 +130,6 @@ impl task::ArchState for SavedState {
         self.sp
     }
 
-    fn program_counter(&self) -> u32 {
-        self.pc
-    }
-
     /// Reads syscall argument register 0.
     fn arg0(&self) -> u32 {
         self.a0
@@ -180,17 +176,6 @@ impl task::ArchState for SavedState {
     fn ret5(&mut self, x: u32) {
         self.a5 = x
     }
-
-    /// Reads stack registers
-    fn s_0(&self) -> u32 {
-        self.s0
-    }
-    fn s_1(&self) -> u32 {
-        self.s1
-    }
-    fn s_2(&self) -> u32 {
-        self.s2
-    }
 }
 
 /// Sets the kernel's notion of our clock frequency measured in kHz.
@@ -227,6 +212,42 @@ pub fn reinitialize(task: &mut task::Task) {
     task.save_mut().pc = task.descriptor().entry_point;
 }
 
+/// Log PMP configuration and address registers
+pub fn log_pmp_registers() {
+    klog!("[KERN]: === PMP Register Status ===");
+
+    // Log configuration registers
+    klog!(
+        "[KERN]: pmpcfg0: 0x{:08x}, pmpcfg1: 0x{:08x}",
+        register::pmpcfg0::read().bits,
+        register::pmpcfg1::read().bits
+    );
+
+    // Log all address registers
+    klog!(
+        "[KERN]: pmpaddr0: 0x{:08x}, pmpaddr1: 0x{:08x}",
+        register::pmpaddr0::read(),
+        register::pmpaddr1::read()
+    );
+    klog!(
+        "[KERN]: pmpaddr2: 0x{:08x}, pmpaddr3: 0x{:08x}",
+        register::pmpaddr2::read(),
+        register::pmpaddr3::read()
+    );
+    klog!(
+        "[KERN]: pmpaddr4: 0x{:08x}, pmpaddr5: 0x{:08x}",
+        register::pmpaddr4::read(),
+        register::pmpaddr5::read()
+    );
+    klog!(
+        "[KERN]: pmpaddr6: 0x{:08x}, pmpaddr7: 0x{:08x}",
+        register::pmpaddr6::read(),
+        register::pmpaddr7::read()
+    );
+
+    klog!("[KERN]: === End PMP Register Status ===");
+}
+
 /// RISCV PMP precomputed region data.
 ///
 /// This struct is `repr(C)` to preserve the order of its fields, which happens
@@ -239,6 +260,21 @@ pub struct RegionDescExt {
     pmpcfg: u8,
     /// PMPADDR register value (NAPOT encoded).
     pmpaddr: u32,
+}
+
+/// Decode PMPADDR register back to (base, size)
+fn decode_pmpaddr(pmpaddr: u32) -> (u32, u32) {
+    // Count trailing ones in pmpaddr
+    let n = pmpaddr.trailing_ones();
+
+    // Region size = 2^(n+3)
+    let region_size = 1u32 << (n + 3);
+
+    // Base address = (pmpaddr & !((1 << n) - 1)) << 2
+    // (zero out trailing ones, then shift back by 2)
+    let base_addr = (pmpaddr & !((1 << n) - 1)) << 2;
+
+    (base_addr, region_size)
 }
 
 pub const fn compute_region_extension_data(
@@ -254,142 +290,263 @@ pub const fn compute_region_extension_data(
     let r = attributes.contains(RegionAttributes::READ);
     let w = attributes.contains(RegionAttributes::WRITE);
     let x = attributes.contains(RegionAttributes::EXECUTE);
-    let any = r || w || x;
 
     // NAPOT address encoding only matters if the entry is active.
     let pmpaddr = {
-        // NAPOT: pmpaddr = (base >> 2) | ((size >> 3) - 1)
-        let base_shifted = (base as usize) >> 2;
+        let base_shifted = ((base | 0x0f) >> 2) as usize;
         let size_encoded = (size as usize >> 3) - 1;
         (base_shifted | size_encoded) as u32
     };
 
+    // Lock → bit 7 Do not set lock bit bcz hart reset is necessary for next PMP register writes
     let pmpcfg = ((x as u8) << 0) |   // execute → bit 0
                  ((w as u8) << 1) |   // write   → bit 1
                  ((r as u8) << 2) |   // read    → bit 2
-                 (0b11 << 3); // NAPOT   → bits 4–3
+                 (0b11 << 3) |       // NAPOT   → bits 4–3
+                 (0b0 << 7);
 
     RegionDescExt { pmpcfg, pmpaddr }
 }
 
-/// Apply memory protection for a task
+// /// Apply memory protection for a task
 pub fn apply_memory_protection(task: &task::Task) {
     klog!(
         "[KERN]: Configuring memory protection for task id: {}",
         task.descriptor().index
     );
 
-    // Log PMP configuration at START - split by regions
-    let pmpcfg0_start = register::pmpcfg0::read().bits;
-    let pmpcfg1_start = register::pmpcfg1::read().bits;
+    // --- Start with clean, zeroed-out configurations ---
+    let mut pmpcfg0_val: u32 = 0;
+    let mut pmpcfg1_val: u32 = 0;
 
-    klog!("[KERN]: PMP Config at START:");
-    klog!(
-        "[KERN]:   Region 0: cfg=0b{:08b}, Region 1: cfg=0b{:08b}, Region 2: cfg=0b{:08b}, Region 3: cfg=0b{:08b}",
-        pmpcfg0_start & 0xFF,
-        (pmpcfg0_start >> 8) & 0xFF,
-        (pmpcfg0_start >> 16) & 0xFF,
-        (pmpcfg0_start >> 24) & 0xFF
-    );
-    klog!(
-        "[KERN]:   Region 4: cfg=0b{:08b}, Region 5: cfg=0b{:08b}, Region 6: cfg=0b{:08b}, Region 7: cfg=0b{:08b}",
-        pmpcfg1_start & 0xFF,
-        (pmpcfg1_start >> 8) & 0xFF,
-        (pmpcfg1_start >> 16) & 0xFF,
-        (pmpcfg1_start >> 24) & 0xFF
-    );
+    // --- First, iterate through the regions to build the cfg values ---
+    for (i, region) in task.region_table().iter().enumerate().take(8) {
+        let pmpcfg = region.arch_data.pmpcfg as u32;
 
-    unsafe {
-        for (i, region) in task.region_table().iter().enumerate().take(8) {
-            // Use precomputed values from arch_data
-            let pmpcfg = region.arch_data.pmpcfg as usize;
-            let pmpaddr = region.arch_data.pmpaddr as usize;
-
-            // Write the pmpaddr register then call set_pmp on the appropriate pmpcfg CSR
-            match i {
-                0 => {
-                    register::pmpaddr0::write(pmpaddr);
-                    register::pmpcfg0::write(
-                        register::pmpcfg0::read().bits & 0xFFFF_FF00 | pmpcfg,
-                    );
-                }
-                1 => {
-                    register::pmpaddr1::write(pmpaddr);
-                    register::pmpcfg0::write(
-                        register::pmpcfg0::read().bits & 0xFFFF_00FF
-                            | (pmpcfg << 8),
-                    );
-                }
-                2 => {
-                    register::pmpaddr2::write(pmpaddr);
-                    register::pmpcfg0::write(
-                        register::pmpcfg0::read().bits & 0xFF00_FFFF
-                            | (pmpcfg << 16),
-                    );
-                }
-                3 => {
-                    register::pmpaddr3::write(pmpaddr);
-                    register::pmpcfg0::write(
-                        register::pmpcfg0::read().bits & 0x00FF_FFFF
-                            | (pmpcfg << 24),
-                    );
-                }
-                4 => {
-                    register::pmpaddr4::write(pmpaddr);
-                    register::pmpcfg1::write(
-                        register::pmpcfg1::read().bits & 0xFFFF_FF00 | pmpcfg,
-                    );
-                }
-                5 => {
-                    register::pmpaddr5::write(pmpaddr);
-                    register::pmpcfg1::write(
-                        register::pmpcfg1::read().bits & 0xFFFF_00FF
-                            | (pmpcfg << 8),
-                    );
-                }
-                6 => {
-                    register::pmpaddr6::write(pmpaddr);
-                    register::pmpcfg1::write(
-                        register::pmpcfg1::read().bits & 0xFF00_FFFF
-                            | (pmpcfg << 16),
-                    );
-                }
-                7 => {
-                    register::pmpaddr7::write(pmpaddr);
-                    register::pmpcfg1::write(
-                        register::pmpcfg1::read().bits & 0x00FF_FFFF
-                            | (pmpcfg << 24),
-                    );
-                }
-                _ => {
-                    klog!(
-                        "[KERN]: Warning: PMP region {} exceeds hardware limit",
-                        i
-                    );
-                }
-            }
+        match i {
+            0 => pmpcfg0_val |= pmpcfg,
+            1 => pmpcfg0_val |= pmpcfg << 8,
+            2 => pmpcfg0_val |= pmpcfg << 16,
+            3 => pmpcfg0_val |= pmpcfg << 24,
+            4 => pmpcfg1_val |= pmpcfg,
+            5 => pmpcfg1_val |= pmpcfg << 8,
+            6 => pmpcfg1_val |= pmpcfg << 16,
+            7 => pmpcfg1_val |= pmpcfg << 24,
+            _ => unreachable!(),
         }
     }
-    // Log PMP configuration at END - split by regions
-    let pmpcfg0_end = register::pmpcfg0::read().bits;
-    let pmpcfg1_end = register::pmpcfg1::read().bits;
 
-    klog!("[KERN]: PMP Config at END:");
-    klog!(
-        "[KERN]:   Region 0: cfg=0b{:08b}, Region 1: cfg=0b{:08b}, Region 2: cfg=0b{:08b}, Region 3: cfg=0b{:08b}",
-        pmpcfg0_end & 0xFF,
-        (pmpcfg0_end >> 8) & 0xFF,
-        (pmpcfg0_end >> 16) & 0xFF,
-        (pmpcfg0_end >> 24) & 0xFF
-    );
-    klog!(
-        "[KERN]:   Region 4: cfg=0b{:08b}, Region 5: cfg=0b{:08b}, Region 6: cfg=0b{:08b}, Region 7: cfg=0b{:08b}",
-        pmpcfg1_end & 0xFF,
-        (pmpcfg1_end >> 8) & 0xFF,
-        (pmpcfg1_end >> 16) & 0xFF,
-        (pmpcfg1_end >> 24) & 0xFF
-    );
+    // --- Now, write the PMP registers ---
+    // It's critical to write CFG registers *before* ADDR registers
+    // if the region is being activated from OFF state.
+    // To be safe, we disable all first, then set addr, then set cfg.
+    unsafe {
+        // 1. Disable all dynamic regions to prevent unexpected behavior.
+        register::pmpcfg0::write(0);
+        register::pmpcfg1::write(0);
+        // reset PMPCFGM0 register
+        arch::asm!("csrrw x0, 0xbd0, {0}", in(reg) 0x0000);
+
+        // 2. Write all ADDR registers.
+        for (i, region) in task.region_table().iter().enumerate().take(8) {
+            let pmpaddr = region.arch_data.pmpaddr as usize;
+            // klog!("[KERN]: Region {}: Writing pmpaddr=0x{:08x}", i, pmpaddr);
+            match i {
+                0 => register::pmpaddr0::write(pmpaddr),
+                1 => register::pmpaddr1::write(pmpaddr),
+                2 => register::pmpaddr2::write(pmpaddr),
+                3 => register::pmpaddr3::write(pmpaddr),
+                4 => register::pmpaddr4::write(pmpaddr),
+                5 => register::pmpaddr5::write(pmpaddr),
+                6 => register::pmpaddr6::write(pmpaddr),
+                7 => register::pmpaddr7::write(pmpaddr),
+                _ => unreachable!(),
+            }
+        }
+
+        // 3. Write the fully constructed CFG registers ONCE.
+        // This activates all regions simultaneously with their correct settings.
+        register::pmpcfg0::write(pmpcfg0_val as usize);
+        register::pmpcfg1::write(pmpcfg1_val as usize);
+    }
+
+    log_pmp_registers();
 }
+
+// /// Apply memory protection for a task
+// pub fn apply_memory_protection(task: &task::Task) {
+//     klog!(
+//         "[KERN]: Configuring memory protection for task id: {}",
+//         task.descriptor().index
+//     );
+
+//     unsafe {
+//         // Disable all dynamic regions (0-7) (A=OFF) orelse new PMPADDR writes sets size to 8 bytes
+//         register::pmpcfg0::write(0);
+//         register::pmpcfg1::write(0);
+
+//         for (i, region) in task.region_table().iter().enumerate().take(8) {
+//             // Use precomputed values from arch_data
+//             let pmpcfg = region.arch_data.pmpcfg as usize;
+//             let pmpaddr = region.arch_data.pmpaddr as usize;
+
+//             klog!("[KERN]: Region {}: Writing pmpaddr=0x{:08x}", i, pmpaddr);
+
+//             // Configure PMP region
+//             match i {
+//                 0 => {
+//                     register::pmpcfg0::write(
+//                         register::pmpcfg0::read().bits & 0xFFFF_FF00 | pmpcfg,
+//                     );
+
+//                     register::pmpaddr0::write(pmpaddr);
+
+//                     // let readback = register::pmpaddr0::read();
+//                     // let (decoded_base, decoded_size) =
+//                     //     decode_pmpaddr(readback as u32);
+//                     // klog!(
+//                     //     "[KERN]: Region 0: Read back pmpaddr0=0x{:08x}, decoded base={}, size={}",
+//                     //     readback,
+//                     //     decoded_base,
+//                     //     decoded_size
+//                     // );
+//                 }
+//                 1 => {
+//                     register::pmpcfg0::write(
+//                         register::pmpcfg0::read().bits & 0xFFFF_00FF
+//                             | (pmpcfg << 8),
+//                     );
+
+//                     register::pmpaddr1::write(pmpaddr);
+
+//                     // let readback = register::pmpaddr1::read();
+//                     // let (decoded_base, decoded_size) =
+//                     //     decode_pmpaddr(readback as u32);
+//                     // klog!(
+//                     //     "[KERN]: Region 1: Read back pmpaddr1=0x{:08x}, decoded base={}, size={}",
+//                     //     readback,
+//                     //     decoded_base,
+//                     //     decoded_size
+//                     // );
+//                 }
+//                 2 => {
+//                     register::pmpcfg0::write(
+//                         register::pmpcfg0::read().bits & 0xFF00_FFFF
+//                             | (pmpcfg << 16),
+//                     );
+
+//                     register::pmpaddr2::write(pmpaddr);
+
+//                     // let readback = register::pmpaddr2::read();
+//                     // let (decoded_base, decoded_size) =
+//                     //     decode_pmpaddr(readback as u32);
+//                     // klog!(
+//                     //     "[KERN]: Region 2: Read back pmpaddr2=0x{:08x}, decoded base={}, size={}",
+//                     //     readback,
+//                     //     decoded_base,
+//                     //     decoded_size
+//                     // );
+//                 }
+//                 3 => {
+//                     register::pmpcfg0::write(
+//                         register::pmpcfg0::read().bits & 0x00FF_FFFF
+//                             | (pmpcfg << 24),
+//                     );
+
+//                     register::pmpaddr3::write(pmpaddr);
+
+//                     // let readback = register::pmpaddr3::read();
+//                     // let (decoded_base, decoded_size) =
+//                     //     decode_pmpaddr(readback as u32);
+//                     // klog!(
+//                     //     "[KERN]: Region 3: Read back pmpaddr3=0x{:08x}, decoded base={}, size={}",
+//                     //     readback,
+//                     //     decoded_base,
+//                     //     decoded_size
+//                     // );
+//                 }
+//                 4 => {
+//                     register::pmpcfg1::write(
+//                         register::pmpcfg1::read().bits & 0xFFFF_FF00 | pmpcfg,
+//                     );
+
+//                     register::pmpaddr4::write(pmpaddr);
+
+//                     // let readback = register::pmpaddr4::read();
+//                     // let (decoded_base, decoded_size) =
+//                     //     decode_pmpaddr(readback as u32);
+//                     // klog!(
+//                     //     "[KERN]: Region 4: Read back pmpaddr4=0x{:08x}, decoded base={}, size={}",
+//                     //     readback,
+//                     //     decoded_base,
+//                     //     decoded_size
+//                     // );
+//                 }
+//                 5 => {
+//                     register::pmpcfg1::write(
+//                         register::pmpcfg1::read().bits & 0xFFFF_00FF
+//                             | (pmpcfg << 8),
+//                     );
+
+//                     register::pmpaddr5::write(pmpaddr);
+
+//                     // let readback = register::pmpaddr5::read();
+//                     // let (decoded_base, decoded_size) =
+//                     //     decode_pmpaddr(readback as u32);
+//                     // klog!(
+//                     //     "[KERN]: Region 5: Read back pmpaddr5=0x{:08x}, decoded base={}, size={}",
+//                     //     readback,
+//                     //     decoded_base,
+//                     //     decoded_size
+//                     // );
+//                 }
+//                 6 => {
+//                     register::pmpcfg1::write(
+//                         register::pmpcfg1::read().bits & 0xFF00_FFFF
+//                             | (pmpcfg << 16),
+//                     );
+
+//                     register::pmpaddr6::write(pmpaddr);
+
+//                     // let readback = register::pmpaddr6::read();
+//                     // let (decoded_base, decoded_size) =
+//                     //     decode_pmpaddr(readback as u32);
+//                     // klog!(
+//                     //     "[KERN]: Region 6: Read back pmpaddr6=0x{:08x}, decoded base={}, size={}",
+//                     //     readback,
+//                     //     decoded_base,
+//                     //     decoded_size
+//                     // );
+//                 }
+//                 7 => {
+//                     register::pmpcfg1::write(
+//                         register::pmpcfg1::read().bits & 0x00FF_FFFF
+//                             | (pmpcfg << 24),
+//                     );
+
+//                     register::pmpaddr7::write(pmpaddr);
+
+//                     // let readback = register::pmpaddr7::read();
+//                     // let (decoded_base, decoded_size) =
+//                     //     decode_pmpaddr(readback as u32);
+//                     // klog!(
+//                     //     "[KERN]: Region 7: Read back pmpaddr7=0x{:08x}, decoded base={}, size={}",
+//                     //     readback,
+//                     //     decoded_base,
+//                     //     decoded_size
+//                     // );
+//                 }
+//                 _ => {
+//                     klog!(
+//                         "[KERN]: Warning: PMP region {} exceeds hardware limit",
+//                         i
+//                     );
+//                 }
+//             }
+//         }
+//     }
+//     log_pmp_registers();
+// }
 
 pub fn start_first_task(tick_divisor: u32, task: &task::Task) -> ! {
     let mstatus = register::mstatus::read();
@@ -523,7 +680,7 @@ unsafe extern "C" fn handle_fault(task: *mut task::Task, fault: FaultInfo) {
         }
     });
     klog!(
-        "[KERN]: Handling fault {:?} which has program_counter: {:#010x}",
+        "[KERN]: Handled fault {:?} which had program_counter: {:#010x}",
         fault,
         unsafe { &*task }.save().pc
     );
@@ -678,8 +835,8 @@ fn trap_handler(task: &mut task::Task) {
         // Interrupts.  Only our periodic MachineTimer interrupt via mtime is
         // supported at present.
         //
-        Trap::Interrupt(SupervisorTimer) => {
-            klog!("[KERN]: Trap::Interrupt(SupervisorTimer)");
+        Trap::Interrupt(MachineTimer) => {
+            klog!("[KERN]: Trap::Interrupt(MachineTimer)");
             with_task_table(|tasks| safe_timer_handler(tasks))
         }
         //
@@ -687,15 +844,28 @@ fn trap_handler(task: &mut task::Task) {
         //
         Trap::Exception(UserEnvCall) => {
             klog!("[KERN]: Trap::Exception(UserEnvCall)");
-            // TODO: Shouldn't be done, just for debugging
-            unsafe {
-                register::mstatus::set_mpp(MPP::Machine);
-            }
+            klog!(
+                "[KERN]: Faulting address: 0x{:08x}",
+                register::mtval::read() as u32
+            );
+            klog!("[KERN]: Current task index: {}", task.descriptor().index);
+            log_pmp_registers();
+
             let mstatus = register::mstatus::read();
             klog!("[KERN]: MSTATUS: {:?}", mstatus.mpp());
             unsafe {
                 // Advance program counter past ecall instruction.
+                klog!(
+                    "[KERN]: Before syscall: PC: {:#010x}, MEPC: {:#010x}",
+                    task.save().pc,
+                    register::mepc::read() as u32
+                );
                 task.save_mut().pc = register::mepc::read() as u32 + 4;
+                klog!(
+                    "[KERN]: After syscall: PC: {:#010x}, MEPC: {:#010x}",
+                    task.save().pc,
+                    register::mepc::read() as u32
+                );
                 arch::asm!(
                     "
                     la a1, CURRENT_TASK_PTR
@@ -715,6 +885,13 @@ fn trap_handler(task: &mut task::Task) {
         },
         Trap::Exception(LoadFault) => unsafe {
             klog!("[KERN]: Trap::Exception(LoadFault)");
+            klog!(
+                "[KERN]: Faulting address: 0x{:08x}",
+                register::mtval::read() as u32
+            );
+            klog!("[KERN]: Current task index: {}", task.descriptor().index);
+            log_pmp_registers();
+
             handle_fault(
                 task,
                 FaultInfo::MemoryAccess {
@@ -739,20 +916,26 @@ fn trap_handler(task: &mut task::Task) {
         },
         _ => {
             klog!(
-                "[KERN]: Unimplemented cause 0b{:b}",
-                register::mcause::read().bits()
+                "[KERN]: Unimplemented cause 0x{:08x}",
+                register::mcause::read().bits() as u32
             );
         }
     }
     // debug
     let task = task;
     klog!(
-        "[KERN]: Handling trap for task with \n index: {:?}\n program_counter: {:#010x}\n entry_point: {:#010x}\n initial_stack: {:#010x}",
+        "[KERN]: Handled trap for task with \n index: {:?}\n program_counter: {:#010x}\n entry_point: {:#010x}\n initial_stack: {:#010x}",
         index,
         task.save().pc,
         entry_point,
         initial_stack
     );
+
+    klog!(
+        "[KERN]: Faulted address: 0x{:08x}",
+        register::mtval::read() as u32
+    );
+    klog!("[KERN]: Faulted task index: {}", task.descriptor().index);
 }
 
 // Timer handling.

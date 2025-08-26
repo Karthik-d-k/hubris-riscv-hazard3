@@ -428,7 +428,6 @@ impl Task {
 pub trait ArchState: Default {
     /// TODO: this is probably not needed here.
     fn stack_pointer(&self) -> u32;
-    fn program_counter(&self) -> u32;
 
     /// Reads syscall argument register 0.
     fn arg0(&self) -> u32;
@@ -460,10 +459,6 @@ pub trait ArchState: Default {
     fn ret4(&mut self, _: u32);
     /// Writes syscall return argument 5.
     fn ret5(&mut self, _: u32);
-
-    fn s_0(&self) -> u32;
-    fn s_1(&self) -> u32;
-    fn s_2(&self) -> u32;
 
     /// Interprets arguments as for the SEND syscall and returns the results.
     ///
