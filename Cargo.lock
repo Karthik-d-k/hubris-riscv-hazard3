@@ -4625,6 +4625,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rp235x-gpio"
+version = "0.1.0"
+dependencies = [
+ "rp235x-pac",
+]
+
+[[package]]
 name = "rp235x-pac"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5316,6 +5323,15 @@ dependencies = [
  "userlib",
  "zerocopy 0.8.25",
  "zerocopy-derive 0.8.25",
+]
+
+[[package]]
+name = "task-blinky"
+version = "0.1.0"
+dependencies = [
+ "riscv",
+ "rp235x-gpio",
+ "userlib",
 ]
 
 [[package]]

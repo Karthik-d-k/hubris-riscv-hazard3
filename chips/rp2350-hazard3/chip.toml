@@ -1,0 +1,11 @@
+[sio]
+address = 0xd000_0000
+size = 512
+
+[io_bank0]
+address = 0x4002_8000
+size = 1024
+
+[pads_bank0]
+address = 0x4003_8000
+size = 256

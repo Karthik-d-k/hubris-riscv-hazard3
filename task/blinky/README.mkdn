@@ -1,0 +1,3 @@
+# blinky task
+
+This task `Blinks` an external LED which is connected to `GPIO22`.

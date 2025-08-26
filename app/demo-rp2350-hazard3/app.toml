@@ -6,7 +6,7 @@ stacksize = 896
 
 [kernel]
 name = "demo-rp2350-hazard3"
-requires = {flash = 29840, ram = 2608}
+requires = {flash = 34848, ram = 2608}
 #features = ["rp2350"]
 
 [tasks.minisuper]
@@ -16,9 +16,17 @@ max-sizes = {flash = 8192, ram = 2048}
 stacksize = 128
 start = true
 
+[tasks.blinky]
+name = "task-blinky"
+priority = 1
+max-sizes = {flash = 8192, ram = 2048}
+stacksize = 128
+uses = ["sio", "io_bank0", "pads_bank0"]
+start = true
+
 [tasks.idle]
 name = "task-idle"
-priority = 1
+priority = 2
 max-sizes = {flash = 128, ram = 256}
 stacksize = 256
 start = true
