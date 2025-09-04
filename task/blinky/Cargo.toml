@@ -1,0 +1,14 @@
+[package]
+name = "task-blinky"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+userlib = { path = "../../sys/userlib", features = ["no-panic"]}
+rp235x-gpio = {path = "../../drv/rp235x-gpio"}
+cortex-m = { workspace = true }
+
+[[bin]]
+name = "task-blinky"
+test = false
+bench = false
