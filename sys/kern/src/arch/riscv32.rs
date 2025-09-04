@@ -578,6 +578,10 @@ pub fn start_first_task(tick_divisor: u32, task: &task::Task) -> ! {
         CURRENT_TASK_PTR.store(task as *const _ as *mut _, Ordering::Relaxed);
         arch::asm!("
             lw sp, ({sp})
+            # --- Workaround for RP2350-E7 ---
+            # if returning to U-mode (mstatus.MPP == 0) set mstatus.MPIE (bit 7)
+            addi    t0, x0, 128    # t0 = 1 << 7 (MPIE mask)
+            csrrs   x0, mstatus, t0   # set mstatus.MPIE  (CSRRS with rd = x0 discards the read)
             mret",
             sp = in(reg) &task.save().sp,
             options(noreturn)
@@ -707,16 +711,18 @@ impl AtomicExt for AtomicBool {
 }
 
 // Provide our own interrupt vector to handle save/restore of the task on
-// entry, overwriting the symbol set up by riscv-rt.
+// entry, overwriting the symbol set up by riscv-rt.  The (align(4)) is
+// necessary as the bottom bits are used to determine direct or vectored traps.
 //
 // We may want to switch to a vectored interrupt table at some point to improve
 // performance.
+#[unsafe(naked)]
 #[link_section = ".trap.rust"]
 #[export_name = "_start_trap"]
 pub unsafe extern "C" fn _start_trap() {
-    unsafe {
-        arch::asm!(
-            "
+    arch::naked_asm!(
+        "
+        .align 4
         #
         # Store full task status on entry, setting up a0 to point at our
         # current task so that it's passed into our exception handler.
@@ -808,10 +814,8 @@ pub unsafe extern "C" fn _start_trap() {
         lw t6,  30*4(t6)
 
         mret
-        ",
-            options(noreturn),
-        );
-    }
+        "
+    );
 }
 
 //
