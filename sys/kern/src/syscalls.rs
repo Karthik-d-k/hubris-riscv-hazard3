@@ -64,6 +64,12 @@ pub(crate) static EXPECT_PHANTOM_SYSCALL: AtomicBool = AtomicBool::new(false);
 pub unsafe extern "C" fn syscall_entry(nr: u32, task: *mut Task) {
     crate::profiling::event_syscall_enter(nr);
 
+    let task_ref = unsafe { &*task };
+    klog!(
+        "[KERN] SYSCALL-{nr}-ENTERED:for task {}",
+        task_ref.descriptor().index
+    );
+
     // The task pointer is about to alias our task table, at which point it
     // could not be dereferenced -- so we'll shed our ability to dereference it
     // immediately.
@@ -94,15 +100,23 @@ pub unsafe extern "C" fn syscall_entry(nr: u32, task: *mut Task) {
 
         match safe_syscall_entry(nr, idx, tasks) {
             // If we're returning to the same task, we're done!
-            NextTask::Same => (),
+            NextTask::Same => {
+                klog!("[KERN] NextTask::Same selected for syscall {}", nr);
+            }
 
             NextTask::Specific(i) => {
+                klog!(
+                    "[KERN] NextTask::Specific({}) selected for syscall {}",
+                    i,
+                    nr
+                );
                 // Safety: this is a valid task from the tasks table, meeting
                 // switch_to's requirements.
                 unsafe { switch_to(&tasks[i]) }
             }
 
             NextTask::Other => {
+                klog!("[KERN] NextTask::Other selected for syscall {}", nr);
                 let next = task::select(idx, tasks);
                 // Safety: this is a valid task from the tasks table, meeting
                 // switch_to's requirements.
@@ -110,6 +124,11 @@ pub unsafe extern "C" fn syscall_entry(nr: u32, task: *mut Task) {
             }
         }
     });
+
+    klog!(
+        "[KERN] SYSCALL-{nr}-EXITED:for task {}",
+        task_ref.descriptor().index
+    );
 
     crate::profiling::event_syscall_exit();
 }

@@ -57,25 +57,28 @@ pub fn has_feature(s: &str) -> bool {
     .is_ok()
 }
 
-/// Exposes the CPU's M-profile architecture version. This isn't available in
-/// rustc's standard environment.
+/// Exposes the ARM CPU's M-profile architecture version: [`armv6m`, `armv7m`, `armv8m`], or [`riscv32`] for RISCV.
+/// This isn't available in rustc's standard environment.
 ///
-/// This will set one of `cfg(armv6m)`, `cfg(armv7m)`, or `cfg(armv8m)`
+/// This will set one of `cfg(armv6m)`, `cfg(armv7m)`, `cfg(armv8m)`, or `cfg(riscv32)`
 /// depending on the value of the `TARGET` environment variable.
 pub fn expose_m_profile() -> Result<()> {
     let target = crate::target();
 
-    println!("cargo::rustc-check-cfg=cfg(armv6m)");
-    println!("cargo::rustc-check-cfg=cfg(armv7m)");
-    println!("cargo::rustc-check-cfg=cfg(armv8m)");
+    println!("cargo:rustc-check-cfg=cfg(armv6m)");
+    println!("cargo:rustc-check-cfg=cfg(armv7m)");
+    println!("cargo:rustc-check-cfg=cfg(armv8m)");
+    println!("cargo:rustc-check-cfg=cfg(riscv32)");
 
     if target.starts_with("thumbv6m") {
-        println!("cargo::rustc-cfg=armv6m");
+        println!("cargo:rustc-cfg=armv6m");
     } else if target.starts_with("thumbv7m") || target.starts_with("thumbv7em")
     {
-        println!("cargo::rustc-cfg=armv7m");
+        println!("cargo:rustc-cfg=armv7m");
     } else if target.starts_with("thumbv8m") {
-        println!("cargo::rustc-cfg=armv8m");
+        println!("cargo:rustc-cfg=armv8m");
+    } else if target.starts_with("riscv32imac") {
+        println!("cargo:rustc-cfg=riscv32");
     } else {
         bail!("Don't know the target {target}");
     }

@@ -7,17 +7,24 @@ edition = "2021"
 bitflags = { workspace = true }
 byteorder = { workspace = true }
 cfg-if = { workspace = true }
-cortex-m = { workspace = true }
 serde = { workspace = true }
 ssmarshal = { workspace = true }
 zerocopy = { workspace = true }
 zerocopy-derive = { workspace = true }
 
 abi = { path = "../abi" }
-armv8-m-mpu = { path = "../../lib/armv8-m-mpu" }
 phash = { path = "../../lib/phash" }
 unwrap-lite = { path = "../../lib/unwrap-lite" }
 kerncore.path = "../kerncore"
+
+[target.'cfg(target_arch = "arm")'.dependencies]
+armv8-m-mpu = { path = "../../lib/armv8-m-mpu" }
+cortex-m = { workspace = true }
+cortex-m-semihosting = { workspace = true }
+
+[target.'cfg(target_arch = "riscv32")'.dependencies]
+riscv = { workspace = true }
+riscv-semihosting = { workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true }
