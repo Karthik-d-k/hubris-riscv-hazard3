@@ -66,7 +66,8 @@ pub unsafe extern "C" fn syscall_entry(nr: u32, task: *mut Task) {
 
     let task_ref = unsafe { &*task };
     klog!(
-        "[KERN] SYSCALL-{nr}-ENTERED:for task {}",
+        "[KERN] ====== SYSCALL-{}-ENTERED:for task {} ======",
+        nr,
         task_ref.descriptor().index
     );
 
@@ -126,7 +127,8 @@ pub unsafe extern "C" fn syscall_entry(nr: u32, task: *mut Task) {
     });
 
     klog!(
-        "[KERN] SYSCALL-{nr}-EXITED:for task {}",
+        "[KERN] ====== SYSCALL-{}-EXITED:for task {} ======",
+        nr,
         task_ref.descriptor().index
     );
 
