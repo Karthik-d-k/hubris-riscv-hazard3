@@ -298,11 +298,10 @@ pub const fn compute_region_extension_data(
     let w = attributes.contains(RegionAttributes::WRITE) as u8;
     let x = attributes.contains(RegionAttributes::EXECUTE) as u8;
 
-    // Proper NAPOT encoding:
-    // pmpaddr = (base >> 2) | ((size - 1) >> 3)
-    let base_shifted = base >> 2;
-    let size_encoded = (size - 1u32) >> 3u32;
-    let pmpaddr = base_shifted | size_encoded;
+    // Proper NAPOT encoding: (copied from `tockos`)
+    let pmpaddr: u32 = (base + (size - 1).overflowing_shr(1).0)
+        .overflowing_shr(2)
+        .0;
 
     // pmpcfg: bits [0]=X, [1]=W, [2]=R, [4:3]=A (0b11 -> NAPOT)
     // Lock → bit 7 Do not set lock bit bcz hart reset is necessary for next PMP register writes
