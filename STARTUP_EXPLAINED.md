@@ -24,84 +24,84 @@ This document traces the **complete boot sequence** from power-on/reset to runni
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        POWER ON / RESET                          │
+│                        POWER ON / RESET                         │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ PHASE 1: Hardware Reset                                          │
+│ PHASE 1: Hardware Reset                                         │
 │ • Cortex-M33 loads SP from 0x0000_0000                          │
 │ • Cortex-M33 loads PC from 0x0000_0004 (reset vector)           │
-│ • Jumps to Reset Handler                                         │
+│ • Jumps to Reset Handler                                        │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ PHASE 2: cortex_m_rt Reset Handler                              │
-│ • Initialize stack pointer (if needed)                           │
-│ • Enable FPU                                                     │
-│ • Copy .data from Flash → RAM                                    │
-│ • Zero .bss section                                              │
-│ • Call main() (#[entry] function)                                │
+│ • Initialize stack pointer (if needed)                          │
+│ • Enable FPU                                                    │
+│ • Copy .data from Flash → RAM                                   │
+│ • Zero .bss section                                             │
+│ • Call main() (#[entry] function)                               │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ PHASE 3: app/lpc55xpresso/src/main.rs                           │
-│ • Get core and peripheral instances                              │
-│ • Determine clock speed                                          │
-│ • Call lpc55_rot_startup::startup()                              │
-│   - Enable MPU for USB RAM                                       │
-│   - Verify flash images                                          │
-│   - Run DICE attestation                                         │
-│   - Enable debugging if beacon set                               │
-│   - Prepare handoff memory                                       │
-│ • Call kern::startup::start_kernel()                             │
+│ • Get core and peripheral instances                             │
+│ • Determine clock speed                                         │
+│ • Call lpc55_rot_startup::startup()                             │
+│   - Enable MPU for USB RAM                                      │
+│   - Verify flash images                                         │
+│   - Run DICE attestation                                        │
+│   - Enable debugging if beacon set                              │
+│   - Prepare handoff memory                                      │
+│ • Call kern::startup::start_kernel()                            │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ PHASE 4: sys/kern/src/startup.rs::start_kernel()                │
-│ • Set clock frequency                                            │
+│ • Set clock frequency                                           │
 │ • Read HUBRIS_TASK_DESCS from Flash                             │
-│ • Initialize task table in RAM                                   │
-│ • For each task: Task::from_descriptor()                         │
-│ • For each task: arch::reinitialize()                            │
+│ • Initialize task table in RAM                                  │
+│ • For each task: Task::from_descriptor()                        │
+│ • For each task: arch::reinitialize()                           │
 │ • Select first task to run (highest priority with start=true)   │
-│ • Call arch::start_first_task()                                  │
+│ • Call arch::start_first_task()                                 │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ PHASE 5: sys/kern/src/arch/arm_m.rs::start_first_task()         │
-│ • Enable fault handlers                                          │
-│ • Set exception priorities                                       │
-│ • Configure SysTick timer                                        │
-│ • Enable MPU                                                     │
-│ • Set CURRENT_TASK_PTR                                           │
+│ • Enable fault handlers                                         │
+│ • Set exception priorities                                      │
+│ • Configure SysTick timer                                       │
+│ • Enable MPU                                                    │
+│ • Set CURRENT_TASK_PTR                                          │
 │ • Load PSP (Process Stack Pointer) for first task               │
-│ • Restore task registers (r4-r11)                                │
-│ • Execute SVC #0xFF to trap into kernel                          │
+│ • Restore task registers (r4-r11)                               │
+│ • Execute SVC #0xFF to trap into kernel                         │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ PHASE 6: SVCall Handler (assembly in arm_m.rs)                  │
-│ • Detect startup mode (LR == 0xFFFFFFF9)                         │
-│ • Switch to unprivileged mode (CONTROL = 0x03)                   │
-│ • Load task's exception return value (0xFFFFFFFD)                │
-│ • Pop hardware-saved registers from task stack                   │
-│ • Return from exception → TASK IS NOW RUNNING                    │
+│ • Detect startup mode (LR == 0xFFFFFFF9)                        │
+│ • Switch to unprivileged mode (CONTROL = 0x03)                  │
+│ • Load task's exception return value (0xFFFFFFFD)               │
+│ • Pop hardware-saved registers from task stack                  │
+│ • Return from exception → TASK IS NOW RUNNING                   │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ PHASE 7: Task Execution (e.g., task-jefe)                       │
-│ • Running in unprivileged Thread mode                            │
-│ • Using Process Stack Pointer (PSP)                              │
-│ • Protected by MPU                                               │
-│ • Can make syscalls via SVC instruction                          │
-│ • Can be preempted by higher-priority tasks                      │
+│ • Running in unprivileged Thread mode                           │
+│ • Using Process Stack Pointer (PSP)                             │
+│ • Protected by MPU                                              │
+│ • Can make syscalls via SVC instruction                         │
+│ • Can be preempted by higher-priority tasks                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -958,25 +958,25 @@ MPU:     Protecting task memory regions
 │   ├─ 0x0000_xxxx: Kernel code                               │
 │   ├─ 0x0001_xxxx: Task code (jefe)                          │
 │   ├─ 0x0002_xxxx: Task code (syscon_driver)                 │
-│   └─ ...                                                     │
+│   └─ ...                                                    │
 ├─────────────────────────────────────────────────────────────┤
 │ 0x2000_0000 - 0x2004_3FFF  SRAM (272 KB)                    │
 │   ├─ 0x2000_0000: Kernel .data + .bss                       │
 │   ├─ 0x2000_1000: Kernel stack                              │
 │   ├─ 0x2000_2000: Task RAM (jefe)                           │
 │   ├─ 0x2000_3000: Task RAM (syscon_driver)                  │
-│   └─ ...                                                     │
+│   └─ ...                                                    │
 ├─────────────────────────────────────────────────────────────┤
 │ 0x4000_0000 - 0x5FFF_FFFF  Peripherals                      │
-│   ├─ 0x4000_0000: GPIO                                       │
-│   ├─ 0x4008_0000: USART                                      │
-│   ├─ 0x5000_0000: SYSCON                                     │
-│   └─ ...                                                     │
+│   ├─ 0x4000_0000: GPIO                                      │
+│   ├─ 0x4008_0000: USART                                     │
+│   ├─ 0x5000_0000: SYSCON                                    │
+│   └─ ...                                                    │
 ├─────────────────────────────────────────────────────────────┤
 │ 0xE000_0000 - 0xE00F_FFFF  System (CPU internal)            │
-│   ├─ 0xE000_E000: SysTick                                    │
-│   ├─ 0xE000_ED00: MPU                                        │
-│   └─ 0xE000_EF00: NVIC                                       │
+│   ├─ 0xE000_E000: SysTick                                   │
+│   ├─ 0xE000_ED00: MPU                                       │
+│   └─ 0xE000_EF00: NVIC                                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -1016,7 +1016,7 @@ Region 3: SYSCON peripheral
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    POWER ON / RESET                          │
+│                    POWER ON / RESET                         │
 └──────────────────────┬──────────────────────────────────────┘
                        │
                        ▼
