@@ -1,0 +1,14 @@
+# Cargo configuration for Layer 0
+#
+# This tells cargo how to build and link for the RP2350 (Cortex-M33)
+# using cortex-m-rt's standard linker script.
+
+[build]
+# Default target for this project
+target = "thumbv8m.main-none-eabihf"
+
+[target.thumbv8m.main-none-eabihf]
+# Use cortex-m-rt's linker script (it includes memory.x and device.x)
+rustflags = [
+    "-C", "link-arg=-Tlink.x",
+]

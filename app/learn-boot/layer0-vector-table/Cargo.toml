@@ -1,0 +1,41 @@
+# Layer 0: Boot Process Fundamentals
+#
+# This example demonstrates how Hubris boots on the RP2350 (Pico 2)
+# using cortex-m-rt for initialization - the same approach Hubris uses.
+#
+# Build with:
+#   cargo +nightly build --release
+#
+# The resulting binary is in:
+#   target/thumbv8m.main-none-eabihf/release/layer0-vector-table
+
+# Make this a standalone workspace to avoid being pulled into the parent workspace
+[workspace]
+
+[package]
+name = "layer0-vector-table"
+version = "0.1.0"
+edition = "2021"
+description = "Layer 0: Boot process fundamentals using cortex-m-rt (Hubris approach)"
+authors = ["Hubris Learner"]
+license = "MPL-2.0"
+
+[dependencies]
+# Reuse existing crates from the Hubris ecosystem
+rp235x-pac = { version = "0.1.0", default-features = false }
+panic-halt = { version = "0.2.0", default-features = false }
+cortex-m = { version = "0.7", default-features = false, features = ["inline-asm"] }
+# cortex-m-rt provides the startup code and vector table - same as Hubris uses
+cortex-m-rt = { version = "0.6.12", default-features = false }
+
+[profile.release]
+# Optimize for size - embedded systems have limited flash
+opt-level = "z"
+# Enable Link-Time Optimization for smaller binary
+lto = true
+# Abort on panic (we handle it ourselves anyway)
+panic = "abort"
+# Single codegen unit for better optimization
+codegen-units = 1
+# Don't include debug info in release
+debug = false
