@@ -24,9 +24,11 @@ license = "MPL-2.0"
 # Reuse existing crates from the Hubris ecosystem
 rp235x-pac = { version = "0.1.0", default-features = false }
 panic-halt = { version = "0.2.0", default-features = false }
-cortex-m = { version = "0.7", default-features = false, features = ["inline-asm"] }
+cortex-m = { version = "0.7", default-features = false, features = ["inline-asm", "critical-section-single-core"] }
 # cortex-m-rt provides the startup code and vector table - same as Hubris uses
 cortex-m-rt = { version = "0.6.12", default-features = false }
+# RTT (Real-Time Transfer) for debug output through the debug probe
+rtt-target = "0.5"
 
 [profile.release]
 # Optimize for size - embedded systems have limited flash

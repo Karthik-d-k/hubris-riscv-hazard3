@@ -26,8 +26,9 @@ This is the first layer in the Hubris boot learning series. It demonstrates the 
 |-------|---------|
 | `cortex-m-rt` | Startup code, vector table, .data/.bss init |
 | `rp235x-pac` | Type-safe peripheral access for RP2350 |
-| `cortex-m` | ARM Cortex-M utilities (delay, asm) |
+| `cortex-m` | ARM Cortex-M utilities (delay, asm, critical-section) |
 | `panic-halt` | Simple panic handler |
+| `rtt-target` | RTT debug output through debug probe |
 
 ## Key Files
 
@@ -90,6 +91,82 @@ cargo +nightly build --release
 ```
 
 Binary at: `target/thumbv8m.main-none-eabihf/release/layer0-vector-table`
+
+## RTT Debug Output
+
+This example uses RTT (Real-Time Transfer) to print debug messages through the debug probe's SWD connection. No UART wiring is needed - output goes directly to your terminal.
+
+### Why RTT?
+- **No extra wiring** - output goes through the debug probe's SWD connection
+- **probe-rs integration** - `probe-rs run` automatically shows RTT output
+- **Simple setup** - just use `rprintln!` macro
+
+### RTT Code Pattern
+```rust
+use rtt_target::{rprintln, rtt_init_print};
+
+#[entry]
+fn main() -> ! {
+    rtt_init_print!();  // Initialize RTT (call once at startup)
+    rprintln!("Hello from Layer 0!");
+    // ...
+}
+```
+
+## How to Flash
+
+### Option 1: UF2 (no debug probe needed)
+
+1. Install elf2uf2-rs:
+   ```bash
+   cargo install elf2uf2-rs
+   ```
+
+2. Put Pi Pico 2 in bootloader mode:
+   - Hold BOOTSEL button
+   - Connect USB (or press RESET while holding BOOTSEL)
+   - Release BOOTSEL - a USB drive named "RP2350" appears
+
+3. Flash the binary:
+   ```bash
+   elf2uf2-rs -d target/thumbv8m.main-none-eabihf/release/layer0-vector-table
+   ```
+   This converts to UF2 and copies to the mounted drive automatically.
+
+### Option 2: probe-rs (with debug probe) - Recommended
+
+1. Install probe-rs:
+   ```bash
+   cargo install probe-rs-tools
+   ```
+
+2. Connect a debug probe (e.g., Picoprobe, J-Link, or another Pi Pico running debugprobe firmware)
+
+3. Flash and run with RTT output:
+   ```bash
+   probe-rs run --chip RP2350 target/thumbv8m.main-none-eabihf/release/layer0-vector-table
+   ```
+
+   RTT output will appear automatically in your terminal:
+   ```
+   Hello from Layer 0!
+   Boot sequence complete, starting blink...
+   LED ON
+   LED OFF
+   LED ON
+   ...
+   ```
+
+### Option 3: picotool
+
+1. Install [picotool](https://github.com/raspberrypi/picotool)
+
+2. Put Pi Pico 2 in bootloader mode (see Option 1)
+
+3. Flash:
+   ```bash
+   picotool load -x target/thumbv8m.main-none-eabihf/release/layer0-vector-table
+   ```
 
 ## Comparison with Hubris
 

@@ -25,6 +25,7 @@
 use cortex_m::asm::delay;
 use cortex_m_rt::entry;
 use rp235x_pac::io_bank0::gpio::gpio_ctrl::FUNCSEL_A;
+use rtt_target::{rprintln, rtt_init_print};
 
 // Link in the PAC's interrupt vector table
 // This is required by cortex-m-rt to populate the vector table
@@ -61,8 +62,15 @@ pub static RP235X_IMAGE_DEF: [u32; 5] = [
 // This is the same pattern Hubris uses in app/demo-pi-pico-2/src/main.rs
 #[entry]
 fn main() -> ! {
-    // LED is on GPIO25 on the Pico 2
-    const LED_PIN: usize = 25;
+    // Initialize RTT (must be called before any rprintln!)
+    rtt_init_print!();
+
+    rprintln!("Hello from Layer 0!");
+    rprintln!("Boot sequence complete, starting blink...");
+
+    // OnBoard LED is on GPIO25 on the Pico 2
+    // Using GPIO15 on the Pico 2W as OnBoard LED is connected to wifi chip
+    const LED_PIN: usize = 15;
     let mask = 1u32 << LED_PIN;
 
     // Get peripheral access using the PAC
@@ -82,7 +90,7 @@ fn main() -> ! {
     while !resets.reset_done().read().io_bank0().bit() {}
     while !resets.reset_done().read().pads_bank0().bit() {}
 
-    // Step 2: Configure the pad for GPIO25
+    // Step 2: Configure the pad for GPIO
     // - Clear isolation (ISO) - RP2350 specific
     // - Enable output (clear OD)
     // - Enable input (set IE)
@@ -100,17 +108,19 @@ fn main() -> ! {
             .write_with_zero(|w| w.funcsel().variant(FUNCSEL_A::SIO));
     }
 
-    // Step 4: Enable GPIO25 as output
+    // Step 4: Enable GPIO as output
     sio.gpio_oe_set().write(|w| unsafe { w.bits(mask) });
 
     // Step 5: Blink forever!
     loop {
         // Turn LED ON
         sio.gpio_out_set().write(|w| unsafe { w.bits(mask) });
-        delay(500_000);
+        rprintln!("LED ON");
+        delay(1000_0000);
 
         // Turn LED OFF
         sio.gpio_out_clr().write(|w| unsafe { w.bits(mask) });
-        delay(500_000);
+        rprintln!("LED OFF");
+        delay(1000_0000);
     }
 }
