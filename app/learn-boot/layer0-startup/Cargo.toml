@@ -7,13 +7,13 @@
 #   cargo +nightly build --release
 #
 # The resulting binary is in:
-#   target/thumbv8m.main-none-eabihf/release/layer0-vector-table
+#   target/thumbv8m.main-none-eabihf/release/layer0-startup
 
 # Make this a standalone workspace to avoid being pulled into the parent workspace
 [workspace]
 
 [package]
-name = "layer0-vector-table"
+name = "layer0-startup"
 version = "0.1.0"
 edition = "2021"
 description = "Layer 0: Boot process fundamentals using cortex-m-rt (Hubris approach)"

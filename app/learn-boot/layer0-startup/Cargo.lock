@@ -68,7 +68,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "layer0-vector-table"
+name = "layer0-startup"
 version = "0.1.0"
 dependencies = [
  "cortex-m",

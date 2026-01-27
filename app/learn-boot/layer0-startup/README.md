@@ -86,11 +86,11 @@ Address      Section        Size    Description
 ## Building
 
 ```bash
-cd app/learn-boot/layer0-vector-table
+cd app/learn-boot/layer0-startup
 cargo +nightly build --release
 ```
 
-Binary at: `target/thumbv8m.main-none-eabihf/release/layer0-vector-table`
+Binary at: `target/thumbv8m.main-none-eabihf/release/layer0-startup`
 
 ## RTT Debug Output
 
@@ -129,7 +129,7 @@ fn main() -> ! {
 
 3. Flash the binary:
    ```bash
-   elf2uf2-rs -d target/thumbv8m.main-none-eabihf/release/layer0-vector-table
+   elf2uf2-rs -d target/thumbv8m.main-none-eabihf/release/layer0-startup
    ```
    This converts to UF2 and copies to the mounted drive automatically.
 
@@ -144,7 +144,7 @@ fn main() -> ! {
 
 3. Flash and run with RTT output:
    ```bash
-   probe-rs run --chip RP2350 target/thumbv8m.main-none-eabihf/release/layer0-vector-table
+   probe-rs run --chip RP2350 target/thumbv8m.main-none-eabihf/release/layer0-startup
    ```
 
    RTT output will appear automatically in your terminal:
@@ -165,7 +165,7 @@ fn main() -> ! {
 
 3. Flash:
    ```bash
-   picotool load -x target/thumbv8m.main-none-eabihf/release/layer0-vector-table
+   picotool load -x target/thumbv8m.main-none-eabihf/release/layer0-startup
    ```
 
 ## Comparison with Hubris
