@@ -44,7 +44,7 @@ phash-gen = { path = "../../build/phash-gen" }
 [features]
 dump = []
 nano = []
-no-mpu = []
+no-pmp = []
 
 [lib]
 test = false
