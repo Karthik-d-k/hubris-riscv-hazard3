@@ -7,7 +7,7 @@ image-names = ["a", "b"]
 
 [kernel]
 name = "lpc55xpresso"
-features = ["dump", "dice-self"]
+features = ["dump", "dice-self", "no-mpu"]
 requires = {flash = 55040, ram = 4096}
 
 [caboose]
