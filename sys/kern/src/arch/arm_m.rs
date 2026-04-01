@@ -268,6 +268,14 @@ const INITIAL_FPSCR: u32 = 0;
 /// that support it) (and that bit 6 and bit 0 can always be set).
 const EXC_RETURN_CONST: u32 = 0xFFFFFFED;
 
+/// CONTROL register value for Thread mode.
+/// With MPU: 1 (nPRIV=1, drop to unprivileged)
+/// Without MPU: 0 (stay privileged, like Zephyr/FreeRTOS)
+#[cfg(not(feature = "no-mpu"))]
+const THREAD_MODE_CONTROL: u32 = 1;
+#[cfg(feature = "no-mpu")]
+const THREAD_MODE_CONTROL: u32 = 0;
+
 // Because debuggers need to know the clock frequency to set the SWO clock
 // scaler that enables ITM, and because ITM is particularly useful when
 // debugging boot failures, this should be set as early in boot as it can
@@ -934,8 +942,10 @@ cfg_if::cfg_if! {
                 bx lr
 
             1:  @ starting up the first task.
-                @ Drop privilege in Thread mode.
-                movs r0, #1
+                @ Set Thread mode privilege level.
+                @ With MPU: drop to unprivileged (1).
+                @ Without MPU: stay privileged (0).
+                movs r0, {thread_control}
                 msr CONTROL, r0
                 @ note: no barrier here because exc return serves as barrier
 
@@ -946,6 +956,7 @@ cfg_if::cfg_if! {
                 bx lr                   @ branch into user mode
         ",
         exc_return = const EXC_RETURN_CONST,
+        thread_control = const THREAD_MODE_CONTROL,
         }
     } else if #[cfg(any(armv7m, armv8m))] {
         global_asm!{"
@@ -996,9 +1007,11 @@ cfg_if::cfg_if! {
                 bx lr
 
             1:  @ starting up the first task.
-                movs r0, #1         @ get bitmask to...
-                msr CONTROL, r0     @ ...shed privs from thread mode.
-                                    @ note: now barrier here because exc return
+                movs r0, {thread_control}   @ set Thread mode privilege:
+                                            @ 1 = unprivileged (with MPU)
+                                            @ 0 = privileged (without MPU)
+                msr CONTROL, r0
+                                    @ note: no barrier here because exc return
                                     @ serves as barrier
 
                 mov lr, {exc_return}    @ materialize EXC_RETURN value to
@@ -1007,6 +1020,7 @@ cfg_if::cfg_if! {
                 bx lr                   @ branch into user mode
             ",
             exc_return = const EXC_RETURN_CONST,
+            thread_control = const THREAD_MODE_CONTROL,
         }
     } else {
         compile_error!("missing SVCall impl for ARM profile.");
