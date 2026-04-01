@@ -84,7 +84,7 @@ use crate::umem::USlice;
 #[cfg(any(armv7m, armv8m))]
 use abi::FaultSource;
 use abi::{FaultInfo, InterruptNum, UsageError};
-#[cfg(armv8m)]
+#[cfg(all(armv8m, not(feature = "no-mpu")))]
 use armv8_m_mpu::{disable_mpu, enable_mpu};
 use unwrap_lite::UnwrapLite;
 
@@ -498,7 +498,7 @@ pub fn apply_memory_protection(task: &task::Task) {
 /// This is `repr(C)` only to make the field order match the register order in
 /// the hardware, which improves code generation. We do not actually rely on the
 /// in-memory representation of this struct otherwise.
-#[cfg(armv8m)]
+#[cfg(all(armv8m, not(feature = "no-mpu")))]
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct RegionDescExt {
@@ -512,7 +512,13 @@ pub struct RegionDescExt {
     mair: u8,
 }
 
-#[cfg(armv8m)]
+/// Empty struct when the MPU is disabled.
+#[cfg(all(armv8m, feature = "no-mpu"))]
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct RegionDescExt;
+
+#[cfg(all(armv8m, not(feature = "no-mpu")))]
 pub const fn compute_region_extension_data(
     base: u32,
     size: u32,
@@ -565,7 +571,14 @@ pub const fn compute_region_extension_data(
     RegionDescExt { rlar, rbar, mair }
 }
 
-#[cfg(armv8m)]
+#[cfg(all(armv8m, feature = "no-mpu"))]
+pub const fn compute_region_extension_data(
+    _base: u32, _size: u32, _ratts: RegionAttributes,
+) -> RegionDescExt {
+    RegionDescExt
+}
+
+#[cfg(all(armv8m, not(feature = "no-mpu")))]
 pub fn apply_memory_protection(task: &task::Task) {
     let mpu = unsafe {
         // At least by not taking a &mut we're confident we're not violating
@@ -621,6 +634,9 @@ pub fn apply_memory_protection(task: &task::Task) {
         enable_mpu(mpu, true);
     }
 }
+
+#[cfg(all(armv8m, feature = "no-mpu"))]
+pub fn apply_memory_protection(_task: &task::Task) {}
 
 pub fn start_first_task(tick_divisor: u32, task: &task::Task) -> ! {
     // Enable faults and set fault/exception priorities to reasonable settings.
