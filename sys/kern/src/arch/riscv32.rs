@@ -84,6 +84,21 @@ static CURRENT_TASK_PTR: AtomicPtr<task::Task> =
 #[no_mangle]
 static CLOCK_FREQ_KHZ: AtomicU32 = AtomicU32::new(0);
 
+/// mstatus.MPP value to set before mret, so tasks resume at the correct
+/// privilege level.
+/// With PMP: MPP=0 (User mode) — hardware sets this on U-mode traps anyway,
+///   but after mret it gets cleared, so we set it explicitly.
+/// Without PMP: MPP=3 (Machine mode) — tasks run privileged. Critical because
+///   mret clears MPP to 0 (User), which would cause the next mret to drop to
+///   U-mode unexpectedly.
+///
+/// mstatus.MPP is bits [12:11]. Machine=0b11, User=0b00.
+#[cfg(not(feature = "no-pmp"))]
+const MSTATUS_MPP_BITS: usize = 0b00 << 11; // User mode
+#[cfg(feature = "no-pmp")]
+const MSTATUS_MPP_BITS: usize = 0b11 << 11; // Machine mode
+const MSTATUS_MPP_MASK: usize = 0b11 << 11;
+
 /// RISC-V volatile registers that must be saved across context switches.
 #[repr(C)]
 #[derive(Clone, Debug, Default, FromBytes)]
@@ -213,6 +228,7 @@ pub fn reinitialize(task: &mut task::Task) {
 }
 
 /// Log PMP configuration and address registers
+#[cfg(not(feature = "no-pmp"))]
 pub fn log_pmp_registers() {
     klog!("[KERN]: ++++++ PMP Register Status ++++++");
 
@@ -258,8 +274,9 @@ pub fn log_pmp_registers() {
 /// RISCV PMP precomputed region data.
 ///
 /// This struct is `repr(C)` to preserve the order of its fields, which happens
-/// to match the order of registers in the MPU. While we don't bit-copy the
+/// to match the order of registers in the PMP. While we don't bit-copy the
 /// struct directly, this does improve code generation in practice.
+#[cfg(not(feature = "no-pmp"))]
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct RegionDescExt {
@@ -269,7 +286,14 @@ pub struct RegionDescExt {
     pmpaddr: u32,
 }
 
+/// Empty struct when PMP is disabled.
+#[cfg(feature = "no-pmp")]
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct RegionDescExt;
+
 /// Decode PMPADDR register back to (base, size)
+#[cfg(not(feature = "no-pmp"))]
 fn decode_pmpaddr(pmpaddr: u32) -> (u32, u32) {
     // Count trailing ones in pmpaddr
     let n = pmpaddr.trailing_ones();
@@ -284,6 +308,7 @@ fn decode_pmpaddr(pmpaddr: u32) -> (u32, u32) {
     (base_addr, region_size)
 }
 
+#[cfg(not(feature = "no-pmp"))]
 pub const fn compute_region_extension_data(
     base: u32,
     size: u32,
@@ -310,7 +335,17 @@ pub const fn compute_region_extension_data(
     RegionDescExt { pmpcfg, pmpaddr }
 }
 
+#[cfg(feature = "no-pmp")]
+pub const fn compute_region_extension_data(
+    _base: u32,
+    _size: u32,
+    _attributes: RegionAttributes,
+) -> RegionDescExt {
+    RegionDescExt
+}
+
 /// Apply memory protection for a task
+#[cfg(not(feature = "no-pmp"))]
 pub fn apply_memory_protection(task: &task::Task) {
     klog!(
         "[KERN]: ----- apply_memory_protection() for TASK [{}] -----",
@@ -415,13 +450,20 @@ pub fn apply_memory_protection(task: &task::Task) {
     log_pmp_registers();
 }
 
+#[cfg(feature = "no-pmp")]
+pub fn apply_memory_protection(_task: &task::Task) {}
+
 pub fn start_first_task(tick_divisor: u32, task: &task::Task) -> ! {
     let mstatus = register::mstatus::read();
     klog!("[KERN]: Starting first task");
-    // Configure MPP to switch us to User mode on exit from Machine
-    // mode (when we call "mret" below).
+    // Configure MPP for the privilege level tasks will run at.
+    // With PMP: User mode (U-mode) for hardware isolation.
+    // Without PMP: Machine mode (M-mode), like Zephyr/FreeRTOS without PMP.
     unsafe {
+        #[cfg(not(feature = "no-pmp"))]
         register::mstatus::set_mpp(MPP::User);
+        #[cfg(feature = "no-pmp")]
+        register::mstatus::set_mpp(MPP::Machine);
 
         // Configure the timer
         // Write the initial task program counter.
@@ -673,11 +715,23 @@ pub unsafe extern "C" fn _start_trap() {
         lw s11, 26*4(t6)
         lw t3,  27*4(t6)
         lw t4,  28*4(t6)
+        # Set mstatus.MPP to the correct privilege level before mret.
+        # mret clears MPP to User (0), so we must restore it each time.
+        # Without PMP: tasks run in M-mode, MPP must be Machine (3).
+        # With PMP: tasks run in U-mode, MPP must be User (0).
+        # We use t5 as scratch before restoring it below.
+        li t5, {mpp_mask}
+        csrc mstatus, t5        # clear MPP bits
+        li t5, {mpp_bits}
+        csrs mstatus, t5        # set desired MPP
+
         lw t5,  29*4(t6)
         lw t6,  30*4(t6)
 
         mret
-        "
+        ",
+        mpp_mask = const MSTATUS_MPP_MASK,
+        mpp_bits = const MSTATUS_MPP_BITS,
     );
 }
 
@@ -710,10 +764,32 @@ fn trap_handler(task: &mut task::Task) {
         }
         //
         // System Calls.
+        // UserEnvCall when tasks run in U-mode (with PMP).
+        // MachineEnvCall when tasks run in M-mode (without PMP).
         //
+        #[cfg(not(feature = "no-pmp"))]
         Trap::Exception(UserEnvCall) => {
             klog!(
                 "[KERN]: Trap::Exception(UserEnvCall) from TASK [{}]",
+                task.descriptor().index
+            );
+            unsafe {
+                // Advance program counter past ecall instruction.
+                task.save_mut().pc = register::mepc::read() as u32 + 4;
+                arch::asm!(
+                    "
+                    la a1, CURRENT_TASK_PTR
+                    mv a0, a7               # arg0 = syscall number
+                    lw a1, (a1)             # arg1 = task ptr
+                    jal syscall_entry
+                    ",
+                );
+            }
+        }
+        #[cfg(feature = "no-pmp")]
+        Trap::Exception(MachineEnvCall) => {
+            klog!(
+                "[KERN]: Trap::Exception(MachineEnvCall) from TASK [{}]",
                 task.descriptor().index
             );
             unsafe {
